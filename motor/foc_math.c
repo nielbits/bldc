@@ -487,6 +487,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	mc_configuration *conf_now = motor->m_conf;
 	float p_term;
 	float d_term;
+	float inc_angle=0.01;
+	float increment=0.0001;
 
 	// PID is off. Return.
 	if (motor->m_control_mode != CONTROL_MODE_SPEED) {
@@ -503,7 +505,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		}
 		utils_truncate_number(&motor->m_speed_pid_set_rpm, conf_now->l_min_erpm, conf_now->l_max_erpm);
 	}
-
+	
 	float rpm = 0.0;
 	switch (conf_now->s_pid_speed_source) {
 	case S_PID_SPEED_SRC_PLL:
@@ -516,52 +518,92 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		rpm = RADPS2RPM_f(motor->m_speed_est_faster);
 		break;
 	}
+	
 
-	float error = motor->m_speed_pid_set_rpm - rpm;
+	//torque_pedal_filtered observer
+	motor->observed_torque_pedal=filtered_derivative(rpm, motor->past_rpm_saved, motor->past_torque_pedal_saved, 0.707,dt);
+	
+	//save previous values before new calculation
+	motor->past_torque_pedal_saved=motor->observed_torque_pedal;
+	motor->past_rpm_saved =rpm;
+	
+	
+	
+	//selector between speed and current control
+	bool speed_control = true;
+	bool current_control= false;
 
-	// Too low RPM set. Reset state, release motor and return.
-	if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
-		motor->m_speed_i_term = 0.0;
+
+	if(motor->observed_torque_pedal >1.0){
+			speed_control=true;
+			current_control=false;
+	}
+	else if(motor->observed_torque_pedal<0.0){
+			speed_control=false;
+			current_control=true;
+	}
+
+	
+	float t_res=t_res_calc(rpm,inc_angle); //t_res in Nm
+	exec_speed_bike_delta(t_res,dt,motor_all_state_t *motor)//updates motor->rpm_energy_model_set
+
+
+
+	if (speed_control==true){
+
+		motor->m_speed_pid_set_rpm=motor->rpm_energy_model_set;
+		
+		float error = motor->m_speed_pid_set_rpm - rpm;
+
+		// Too low RPM set. Reset state, release motor and return.
+		if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
+			motor->m_speed_i_term = 0.0;
+			motor->m_speed_prev_error = error;
+			motor->m_iq_set = 0.0;
+			return;
+		}
+
+		// Compute parameters
+		p_term = error * conf_now->s_pid_kp * (1.0 / 20.0);
+		d_term = (error - motor->m_speed_prev_error) * (conf_now->s_pid_kd / dt) * (1.0 / 20.0);
+
+		// Filter D
+		UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
+		d_term = motor->m_speed_d_filter;
+
+		// Store previous error
 		motor->m_speed_prev_error = error;
-		motor->m_iq_set = 0.0;
-		return;
-	}
 
-	// Compute parameters
-	p_term = error * conf_now->s_pid_kp * (1.0 / 20.0);
-	d_term = (error - motor->m_speed_prev_error) * (conf_now->s_pid_kd / dt) * (1.0 / 20.0);
+		// Calculate output
+		float output = p_term + motor->m_speed_i_term + d_term;
+		utils_truncate_number_abs(&output, 1.0);
 
-	// Filter D
-	UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
-	d_term = motor->m_speed_d_filter;
+		// Integrator windup protection
+		motor->m_speed_i_term += error * conf_now->s_pid_ki * dt * (1.0 / 20.0);
+		utils_truncate_number_abs(&motor->m_speed_i_term, 1.0);
 
-	// Store previous error
-	motor->m_speed_prev_error = error;
-
-	// Calculate output
-	float output = p_term + motor->m_speed_i_term + d_term;
-	utils_truncate_number_abs(&output, 1.0);
-
-	// Integrator windup protection
-	motor->m_speed_i_term += error * conf_now->s_pid_ki * dt * (1.0 / 20.0);
-	utils_truncate_number_abs(&motor->m_speed_i_term, 1.0);
-
-	if (conf_now->s_pid_ki < 1e-9) {
-		motor->m_speed_i_term = 0.0;
-	}
-
-	// Optionally disable braking
-	if (!conf_now->s_pid_allow_braking) {
-		if (rpm > 20.0 && output < 0.0) {
-			output = 0.0;
+		if (conf_now->s_pid_ki < 1e-9) {
+			motor->m_speed_i_term = 0.0;
 		}
 
-		if (rpm < -20.0 && output > 0.0) {
-			output = 0.0;
-		}
-	}
+		// Optionally disable braking
+		if (!conf_now->s_pid_allow_braking) {
+			if (rpm > 20.0 && output < 0.0) {
+				output = 0.0;
+			}
 
-	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
+			if (rpm < -20.0 && output > 0.0) {
+				output = 0.0;
+			}
+		}
+
+		motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
+	}
+		if (current_control==true){
+				motor->m_iq_set=i_ref_t_res_calc(motor,t_res);
+
+	
+		}	
 }
 
 float foc_correct_encoder(float obs_angle, float enc_angle, float speed,
@@ -757,4 +799,73 @@ void foc_precalc_values(motor_all_state_t *motor) {
 	motor->p_inv_ld_lq = (1.0 / motor->p_lq - 1.0 / motor->p_ld);
 	motor->p_v2_v3_inv_avg_half = (0.5 / motor->p_lq + 0.5 / motor->p_ld) * 0.9; // With the 0.9 we undo the adjustment from the detection
 	motor->m_observer_state.lambda_est = conf_now->foc_motor_flux_linkage;
+}
+
+
+float t_res_calc(rpm, inc_angle){//use inc angle in degrees
+//function calculates the resistance torque when in current mode
+	float angle_rads=inc_angle/(2*3.141592);//convert to radians
+	float g=9.81;//gravity, transfer later
+	float height = 1.75;
+	float m = 70; //mass, change it to config later
+	float area= height*0.7;
+	float mu_rr=0.0001;
+	float mu_floor=0.0001;
+	float r_w=1.225;//wheel radius, change it to config later
+	float c_wl=0.001;//bearing friction
+	float c_wb=0.001;//bearing friction
+	float rho =0.0001;//air resistance friction
+	float area= r_w*r_w; //body section area
+	float t_res_static= m*g*(sin(angle_rads))+cos(angle_rads)*mu_rr*mu_floor/(r_w*r_w);//independent from speed
+	float t_res_dynamic= (c_wl*rho*area*r_w*r_w +m*g*sin(angle_rads)*c_wb)*(rpm/60);//speed dependent component
+	return (t_res_static+t_res_dynamic) //returns value in N/m
+}
+
+float i_ref_t_res_calc(motor_all_state_t *motor,t_res); { 
+	//calculates i_reference based on desired torque
+	//for now, it assumes imax =36A as configured.
+
+	float kT=1.5*motor->m_conf->foc_motor_flux_linkage*((double)si_motor_poles))
+	float i_ref= (t_res/kT)/motor->m_conf->l_current_max;
+	return i_ref;
+} 
+
+void exec_speed_bike_delta(t_res,dt,motor_all_state_t *motor){
+	//updates bike_speed in motor_all_state_struct
+	const mc_configuration *conf_now = motor->m_conf;
+	float id= motor->m_motor_state.id_filter;
+	float iq= motor->m_motor_state.iq_filter;
+	float t_e= 1.5*motor->m_conf->foc_motor_flux_linkage*((double)si_motor_poles))*iq+motor->m_conf->ld_lq_diff*(id*iq)
+	float j_eq=56.57;
+	float j_m= 0.2597;
+	motor->rpm_energy_model_set=motor->speed_energy_model_set + (t_e-t_res)(1/(j_eq-j_m))*dt*60;//set speed from energy model in rpm updated;
+
+}
+float linear_filter(float new_value, float increment, float old_value) {
+    if (new_value > old_value) {
+        new_value = old_value + increment;
+    } 
+	else if (new_value < old_value) {
+        new_value = old_value - increment;
+    }
+    return new_value;
+}
+
+
+void torque_pedal_observer(motor_all_state_t *motor,dt){
+
+	float id= motor->m_motor_state.id_filter;
+	float iq= motor->m_motor_state.iq_filter;
+	
+}
+
+
+double filtered_derivative(double input, double prev_input, double prev_output, double fc, double dt) {
+    // Calculate time constant
+    double tau = 1.0 / (2.0 * M_PI * fc);
+
+    // Compute filtered derivative
+    double output = (1.0 / (tau + dt)) * (tau * prev_output + (input - prev_input));
+
+    return output;
 }
