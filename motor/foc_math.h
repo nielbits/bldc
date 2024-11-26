@@ -241,6 +241,15 @@ typedef struct {
 	float p_ld;
 	float p_inv_ld_lq; // (1.0/lq - 1.0/ld)
 	float p_v2_v3_inv_avg_half; // (0.5/ld + 0.5/lq)
+
+	//added state for energy balance and inertia simulation
+
+	float speed_energy_model_set;
+	float observed_torque_pedal;
+	float past_rpm_saved;
+	float past_torque_pedal_saved;
+
+	
 } motor_all_state_t;
 
 // Functions
@@ -257,5 +266,14 @@ float foc_correct_hall(float angle, float dt, motor_all_state_t *motor, int hall
 void foc_run_fw(motor_all_state_t *motor, float dt);
 void foc_hfi_adjust_angle(float ang_err, motor_all_state_t *motor, float dt);
 void foc_precalc_values(motor_all_state_t *motor);
+
+//new function added 25/11/2025 to calculate resistance torque 
+
+float t_res_calc(rpm, inc_angle);
+float i_ref_t_res_calc(motor_all_state_t *motor,t_res); 
+void exec_speed_bike_delta(t_res,dt,motor_all_state_t *motor);
+float linear_filter(float new_value, float increment, float old_value) ;
+void torque_pedal_observer(motor_all_state_t *motor,dt);
+double filtered_derivative(double input, double prev_input, double prev_output, double fc, double dt);
 
 #endif /* FOC_MATH_H_ */

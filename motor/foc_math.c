@@ -487,7 +487,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	mc_configuration *conf_now = motor->m_conf;
 	float p_term;
 	float d_term;
-	float inc_angle=0.01;
+	float inc_angle=0.00;
 	float increment=0.0001;
 
 	// PID is off. Return.
@@ -521,7 +521,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	
 
 	//torque_pedal_filtered observer
-	motor->observed_torque_pedal=filtered_derivative(rpm, motor->past_rpm_saved, motor->past_torque_pedal_saved, 0.707,dt);
+	motor->observed_torque_pedal=filtered_derivative(rpm, motor->past_rpm_saved,
+	 motor->past_torque_pedal_saved, 0.707,dt);
 	
 	//save previous values before new calculation
 	motor->past_torque_pedal_saved=motor->observed_torque_pedal;
@@ -548,11 +549,9 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	exec_speed_bike_delta(t_res,dt,motor_all_state_t *motor)//updates motor->rpm_energy_model_set
 
 
-
 	if (speed_control==true){
 
 		motor->m_speed_pid_set_rpm=motor->rpm_energy_model_set;
-		
 		float error = motor->m_speed_pid_set_rpm - rpm;
 
 		// Too low RPM set. Reset state, release motor and return.
@@ -596,14 +595,12 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 				output = 0.0;
 			}
 		}
-
 		motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
 	}
-		if (current_control==true){
-				motor->m_iq_set=i_ref_t_res_calc(motor,t_res);
-
+	if (current_control==true){
+			motor->m_iq_set=i_ref_t_res_calc(motor,t_res);
 	
-		}	
+	}	
 }
 
 float foc_correct_encoder(float obs_angle, float enc_angle, float speed,
@@ -817,7 +814,7 @@ float t_res_calc(rpm, inc_angle){//use inc angle in degrees
 	float rho =0.0001;//air resistance friction
 	float area= r_w*r_w; //body section area
 	float t_res_static= m*g*(sin(angle_rads))+cos(angle_rads)*mu_rr*mu_floor/(r_w*r_w);//independent from speed
-	float t_res_dynamic= (c_wl*rho*area*r_w*r_w +m*g*sin(angle_rads)*c_wb)*(rpm/60);//speed dependent component
+	float t_res_dynamic= (c_wl*rho*area*r_w*r_w +m*g*sin(angle_rads)*c_wb)*(-rpm/60);//speed dependent component
 	return (t_res_static+t_res_dynamic) //returns value in N/m
 }
 
