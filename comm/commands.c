@@ -436,7 +436,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		}
 		if (mask & ((uint32_t)1 << 12)) {
 //			buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
-			buffer_append_float32(send_buffer, mcpwm_foc_get_bike_set_rpm(false), 1e4, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_bike_set_rpm(), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 13)) {
 			buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);
