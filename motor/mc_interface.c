@@ -503,7 +503,7 @@ const char* mc_interface_fault_to_string(mc_fault_code fault) {
 	}
 
 	return "Unknown fault";
-}
+}	 
 
 mc_state mc_interface_get_state(void) {
 	mc_state ret = MC_STATE_OFF;
@@ -3022,4 +3022,18 @@ unsigned mc_interface_calc_crc(mc_configuration* conf_in, bool is_motor_2) {
 	unsigned crc_new = crc16((uint8_t*)conf, sizeof(mc_configuration));
 	conf->crc = crc_old;
 	return crc_new;
+}
+
+
+float mc_interface_get_observed_tp(void) {
+	return mcpwm_foc_get_observed_tp();
+}
+float mc_interface_get_calculated_t_res(void) {
+	return mcpwm_foc_get_calculated_t_res();
+}
+float mc_interface_get_calculated_i_sp(void) {
+	return mcpwm_foc_get_calculated_i_sp();
+}
+float mc_interface_get_bike_set_rpm(void) {
+	return mcpwm_foc_get_bike_set_rpm();
 }

@@ -521,8 +521,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	
 
 	//torque_pedal_filtered observer
-	motor->observed_torque_pedal=filtered_derivative(rpm, motor->past_rpm_saved,
-	 motor->past_torque_pedal_saved, 0.707,dt);
+	float alpha=filtered_derivative(rpm, motor->past_rpm_saved,motor->past_torque_pedal_saved, 0.707,dt);
+	motor->observed_torque_pedal=t_pedal_calculator(motor,alpha);
 	
 	//save previous values before new calculation
 	motor->past_torque_pedal_saved=motor->observed_torque_pedal;
@@ -546,12 +546,13 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	
 	float t_res=t_res_calc(rpm,inc_angle); //t_res in Nm
-	exec_speed_bike_delta(t_res,dt,motor_all_state_t *motor)//updates motor->rpm_energy_model_set
-
+	motor->res_torque_calc= t_res;
+	exec_speed_bike_delta(motor,t_res,dt);//updates motor->rpm_energy_model_set
+	motor->i_ref_t_res_calc= i_ref_t_res_calc(motor,t_res);
 
 	if (speed_control==true){
 
-		motor->m_speed_pid_set_rpm=motor->rpm_energy_model_set;
+		motor->m_speed_pid_set_rpm=motor->speed_energy_model_set;
 		float error = motor->m_speed_pid_set_rpm - rpm;
 
 		// Too low RPM set. Reset state, release motor and return.
@@ -598,7 +599,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
 	}
 	if (current_control==true){
-			motor->m_iq_set=i_ref_t_res_calc(motor,t_res);
+			motor->m_iq_set=motor->i_ref_t_res_calc;
 	
 	}	
 }
@@ -799,7 +800,7 @@ void foc_precalc_values(motor_all_state_t *motor) {
 }
 
 
-float t_res_calc(rpm, inc_angle){//use inc angle in degrees
+float t_res_calc(float rpm,float inc_angle){//use inc angle in degrees
 //function calculates the resistance torque when in current mode
 	float angle_rads=inc_angle/(2*3.141592);//convert to radians
 	float g=9.81;//gravity, transfer later
@@ -808,34 +809,33 @@ float t_res_calc(rpm, inc_angle){//use inc angle in degrees
 	float area= height*0.7;
 	float mu_rr=0.0001;
 	float mu_floor=0.0001;
-	float r_w=1.225;//wheel radius, change it to config later
+	float r_w=0.075;
+	float rho=1.225;//wheel radius, change it to config later
 	float c_wl=0.001;//bearing friction
 	float c_wb=0.001;//bearing friction
-	float rho =0.0001;//air resistance friction
-	float area= r_w*r_w; //body section area
 	float t_res_static= m*g*(sin(angle_rads))+cos(angle_rads)*mu_rr*mu_floor/(r_w*r_w);//independent from speed
 	float t_res_dynamic= (c_wl*rho*area*r_w*r_w +m*g*sin(angle_rads)*c_wb)*(-rpm/60);//speed dependent component
-	return (t_res_static+t_res_dynamic) //returns value in N/m
+	return (t_res_static+t_res_dynamic); //returns value in N/m
 }
 
-float i_ref_t_res_calc(motor_all_state_t *motor,t_res); { 
+float i_ref_t_res_calc(motor_all_state_t *motor,float t_res){ 
 	//calculates i_reference based on desired torque
 	//for now, it assumes imax =36A as configured.
 
-	float kT=1.5*motor->m_conf->foc_motor_flux_linkage*((double)si_motor_poles))
+	float kT=1.5*motor->m_conf->foc_motor_flux_linkage*(motor->m_conf->si_motor_poles);
 	float i_ref= (t_res/kT)/motor->m_conf->l_current_max;
 	return i_ref;
 } 
 
-void exec_speed_bike_delta(t_res,dt,motor_all_state_t *motor){
+void exec_speed_bike_delta(motor_all_state_t *motor,float t_res,float dt){
 	//updates bike_speed in motor_all_state_struct
 	const mc_configuration *conf_now = motor->m_conf;
 	float id= motor->m_motor_state.id_filter;
 	float iq= motor->m_motor_state.iq_filter;
-	float t_e= 1.5*motor->m_conf->foc_motor_flux_linkage*((double)si_motor_poles))*iq+motor->m_conf->ld_lq_diff*(id*iq)
+	float t_e= 1.5*motor->m_conf->foc_motor_flux_linkage*((float)motor->m_conf->si_motor_poles)*iq+motor->m_conf->foc_motor_ld_lq_diff*(id*iq);
 	float j_eq=56.57;
-	float j_m= 0.2597;
-	motor->rpm_energy_model_set=motor->speed_energy_model_set + (t_e-t_res)(1/(j_eq-j_m))*dt*60;//set speed from energy model in rpm updated;
+	float j_m= 0.00043;
+	motor->speed_energy_model_set=motor->speed_energy_model_set + (t_e-t_res)*(1/(j_eq-j_m))*dt*60;//set speed from energy model in rpm updated;
 
 }
 float linear_filter(float new_value, float increment, float old_value) {
@@ -849,20 +849,21 @@ float linear_filter(float new_value, float increment, float old_value) {
 }
 
 
-void torque_pedal_observer(motor_all_state_t *motor,dt){
 
-	float id= motor->m_motor_state.id_filter;
-	float iq= motor->m_motor_state.iq_filter;
-	
-}
-
-
-double filtered_derivative(double input, double prev_input, double prev_output, double fc, double dt) {
+float filtered_derivative(float input, float prev_input, float prev_output, float fc, float dt) {
     // Calculate time constant
-    double tau = 1.0 / (2.0 * M_PI * fc);
+    float tau = 1.0 / (2.0 * M_PI * fc);
 
     // Compute filtered derivative
-    double output = (1.0 / (tau + dt)) * (tau * prev_output + (input - prev_input));
+    float output = (1.0 / (tau + dt)) * (tau * prev_output + (input - prev_input));
 
     return output;
+}
+float t_pedal_calculator(motor_all_state_t *motor, float alpha){
+	float j_m = 0.00043
+	float id= motor->m_motor_state.id_filter;
+	float iq= motor->m_motor_state.iq_filter;
+	float t_e= 1.5*motor->m_conf->foc_motor_flux_linkage*((float)motor->m_conf->si_motor_poles)*iq+motor->m_conf->foc_motor_ld_lq_diff*(id*iq);
+	
+    return alpha*j_m-t_e;
 }

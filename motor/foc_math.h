@@ -248,8 +248,10 @@ typedef struct {
 	float observed_torque_pedal;
 	float past_rpm_saved;
 	float past_torque_pedal_saved;
+	float res_torque_calc;
+	float i_ref_t_res_calc;
 
-	
+
 } motor_all_state_t;
 
 // Functions
@@ -269,11 +271,14 @@ void foc_precalc_values(motor_all_state_t *motor);
 
 //new function added 25/11/2025 to calculate resistance torque 
 
-float t_res_calc(rpm, inc_angle);
-float i_ref_t_res_calc(motor_all_state_t *motor,t_res); 
-void exec_speed_bike_delta(t_res,dt,motor_all_state_t *motor);
+float t_res_calc(float rpm, float inc_angle);
+float i_ref_t_res_calc(motor_all_state_t *motor,float t_res); 
+void exec_speed_bike_delta(motor_all_state_t *motort_res,float t_res, float dt);
 float linear_filter(float new_value, float increment, float old_value) ;
-void torque_pedal_observer(motor_all_state_t *motor,dt);
-double filtered_derivative(double input, double prev_input, double prev_output, double fc, double dt);
+void torque_pedal_observer(motor_all_state_t *motor,float dt);
+float filtered_derivative(float input, float prev_input, float prev_output, float fc, float dt);
+float t_pedal_calculator(motor_all_state_t *motor, float alpha);
+
+
 
 #endif /* FOC_MATH_H_ */

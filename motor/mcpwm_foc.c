@@ -366,6 +366,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
 	init_audio_state(&m_motor_1.m_audio);
+	
 
 #ifdef HW_HAS_DUAL_MOTORS
 	memset((void*)&m_motor_2, 0, sizeof(motor_all_state_t));
@@ -5185,4 +5186,16 @@ static void terminal_plot_hfi(int argc, const char **argv) {
 	} else {
 		commands_printf("This command requires one argument.\n");
 	}
+}
+float mcpwm_foc_get_observed_tp(void) {
+	return get_motor_now()->observed_torque_pedal;
+}
+float mcpwm_foc_get_calculated_t_res(void) {
+	return get_motor_now()->res_torque_calc;
+}
+float mcpwm_foc_get_calculated_i_sp(void) {
+	return get_motor_now()->i_ref_t_res_calc;
+}
+float mcpwm_foc_get_bike_set_rpm(void) {
+	return get_motor_now()->speed_energy_model_set;
 }

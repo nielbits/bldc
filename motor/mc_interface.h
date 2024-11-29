@@ -143,6 +143,14 @@ extern volatile float ADC_curr_norm_value[];
 extern volatile float ADC_curr_raw[];
 
 
+//access info from motor_all_state_t in mcpwm_foc
+
+float mc_interface_get_observed_tp(void);
+float mc_interface_get_calculated_t_res(void);
+float mc_interface_get_calculated_i_sp(void);
+float mc_interface_get_bike_set_rpm(void);
+
+
 // Common fixed parameters
 #ifndef HW_DEAD_TIME_NSEC
 #define HW_DEAD_TIME_NSEC				360.0	// Dead time

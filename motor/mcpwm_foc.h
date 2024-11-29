@@ -150,7 +150,14 @@ mc_state mcpwm_foc_get_state_motor(bool is_second_motor);
 void mcpwm_foc_tim_sample_int_handler(void);
 void mcpwm_foc_adc_int_handler(void *p, uint32_t flags);
 
-// Defines
+
+//get data from motor_all_state
+float mcpwm_foc_get_observed_tp(void);
+float mcpwm_foc_get_calculated_t_res(void);
+float mcpwm_foc_get_calculated_i_sp(void);
+float mcpwm_foc_get_bike_set_rpm(void);
+
+
 #define MCPWM_FOC_CURRENT_SAMP_OFFSET				(2) // Offset from timer top for ADC samples
 
 #endif /* MCPWM_FOC_H_ */
