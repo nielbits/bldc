@@ -422,16 +422,21 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			buffer_append_float16(send_buffer, mc_interface_get_input_voltage_filtered(), 1e1, &ind);
 		}
 		if (mask & ((uint32_t)1 << 9)) {
-			buffer_append_float32(send_buffer, mc_interface_get_amp_hours(false), 1e4, &ind);
+//			buffer_append_float32(send_buffer, mc_interface_get_amp_hours(false), 1e4, &ind);
+			buffer_append_float32(send_buffer, mc_interface_get_observed_tp(), 1e4, &ind);
+
 		}
 		if (mask & ((uint32_t)1 << 10)) {
-			buffer_append_float32(send_buffer, mc_interface_get_amp_hours_charged(false), 1e4, &ind);
+//			buffer_append_float32(send_buffer, mc_interface_get_amp_hours_charged(false), 1e4, &ind);
+			buffer_append_float32(send_buffer, mc_interface_get_calculated_t_res(), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 11)) {
-			buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
+//			buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
+			buffer_append_float32(send_buffer, mc_interface_get_calculated_i_sp(), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 12)) {
-			buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
+//			buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_bike_set_rpm(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 13)) {
 			buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);

@@ -860,7 +860,7 @@ float filtered_derivative(float input, float prev_input, float prev_output, floa
     return output;
 }
 float t_pedal_calculator(motor_all_state_t *motor, float alpha){
-	float j_m = 0.00043
+	float j_m = 0.00043;
 	float id= motor->m_motor_state.id_filter;
 	float iq= motor->m_motor_state.iq_filter;
 	float t_e= 1.5*motor->m_conf->foc_motor_flux_linkage*((float)motor->m_conf->si_motor_poles)*iq+motor->m_conf->foc_motor_ld_lq_diff*(id*iq);
