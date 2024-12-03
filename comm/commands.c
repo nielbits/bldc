@@ -439,7 +439,9 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			buffer_append_float32(send_buffer, mcpwm_foc_get_bike_set_rpm(), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 13)) {
-			buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);
+//			buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);
+			buffer_append_float32(send_buffer, mc_interface_get_bike_control_mode(), 1, &ind);
+
 		}
 		if (mask & ((uint32_t)1 << 14)) {
 			buffer_append_int32(send_buffer, mc_interface_get_tachometer_abs_value(false), &ind);

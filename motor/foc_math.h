@@ -250,11 +250,12 @@ typedef struct {
 	float past_torque_pedal_saved;
 	float res_torque_calc;
 	float i_ref_t_res_calc;
+	float control_mode_actual;
 
 
 } motor_all_state_t;
 
-// Functions
+// Functionsal
 void foc_observer_update(float v_alpha, float v_beta, float i_alpha, float i_beta,
 		float dt, observer_state *state, float *phase, motor_all_state_t *motor);
 void foc_pll_run(float phase, float dt, float *phase_var,

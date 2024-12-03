@@ -149,6 +149,7 @@ float mc_interface_get_observed_tp(void);
 float mc_interface_get_calculated_t_res(void);
 float mc_interface_get_calculated_i_sp(void);
 float mc_interface_get_bike_set_rpm(void);
+float mc_interface_get_bike_control_mode(void);
 
 
 // Common fixed parameters

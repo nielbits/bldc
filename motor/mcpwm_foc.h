@@ -156,7 +156,7 @@ float mcpwm_foc_get_observed_tp(void);
 float mcpwm_foc_get_calculated_t_res(void);
 float mcpwm_foc_get_calculated_i_sp(void);
 float mcpwm_foc_get_bike_set_rpm(void);
-
+float mcpwm_foc_get_bike_control_mode(void);
 
 #define MCPWM_FOC_CURRENT_SAMP_OFFSET				(2) // Offset from timer top for ADC samples
 

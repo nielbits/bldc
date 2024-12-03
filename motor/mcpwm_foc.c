@@ -363,6 +363,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_last = 1.0;
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
+	m_motor_1.speed_energy_model_set =0;
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
 	init_audio_state(&m_motor_1.m_audio);
@@ -5198,4 +5199,7 @@ float mcpwm_foc_get_calculated_i_sp(void) {
 }
 float mcpwm_foc_get_bike_set_rpm(void) {
 	return get_motor_now()->speed_energy_model_set;
+}
+float mcpwm_foc_get_bike_control_mode(void) {
+	return get_motor_now()->control_mode_actual;
 }
