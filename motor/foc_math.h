@@ -250,7 +250,10 @@ typedef struct {
 	float past_torque_pedal_saved;
 	float res_torque_calc;
 	float i_ref_t_res_calc;
-	float control_mode_actual;
+	int control_mode_actual;
+	float iq_temp_filter;
+	int timer_hold_current;
+	int timer_hold_speed;
 
 
 } motor_all_state_t;

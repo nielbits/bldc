@@ -363,7 +363,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_last = 1.0;
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
-	m_motor_1.speed_energy_model_set =0;
+	//m_motor_1.speed_energy_model_set =0;//removed bc added to speed control start function
+	m_motor_1.control_mode_actual=0;
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
 	init_audio_state(&m_motor_1.m_audio);
@@ -741,7 +742,8 @@ void mcpwm_foc_set_duty_noramp(float dutyCycle) {
  */
 void mcpwm_foc_set_pid_speed(float rpm) {
 	volatile motor_all_state_t *motor = get_motor_now();
-
+	// //reset speed when change to speed control
+	motor->control_mode_actual=0; //reset control mode state machine
 	if (motor->m_conf->s_pid_ramp_erpms_s > 0.0 ) {
 		if (motor->m_control_mode != CONTROL_MODE_SPEED ||
 				motor->m_state != MC_STATE_RUNNING) {
@@ -790,7 +792,8 @@ void mcpwm_foc_set_pid_pos(float pos) {
  */
 void mcpwm_foc_set_current(float current) {
 	volatile motor_all_state_t *motor = get_motor_now();
-
+	motor->control_mode_actual =0;
+	motor->speed_energy_model_set =0;//removed from set speed, it will reset when motor is in current contorl mode (future add to other models)
 	motor->m_control_mode = CONTROL_MODE_CURRENT;
 	motor->m_iq_set = current;
 	motor->m_id_set = 0;
