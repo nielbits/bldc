@@ -488,7 +488,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float p_term;
 	float d_term;
 	float inc_angle=0;
-	float increment=0.0001;
+	float increment=0.01;
 
 	// PID is off. Return.
 	if (motor->m_control_mode != CONTROL_MODE_SPEED) {
@@ -520,13 +520,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	}
 	
 
-	//torque_pedal_filtered observer
-	float alpha=filtered_derivative(rpm, motor->past_rpm_saved,motor->past_torque_pedal_saved, 0.707,dt);
-	motor->observed_torque_pedal=t_pedal_calculator(motor,alpha);
-	
-	//save previous values before new calculation
-	motor->past_torque_pedal_saved=motor->observed_torque_pedal;
-	motor->past_rpm_saved =rpm;
+
 	
 	
 	
@@ -536,59 +530,65 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float id= motor->m_motor_state.id_filter;
 	float iq= motor->m_motor_state.iq_filter;
 	float t_e= 1.5*motor->m_conf->foc_motor_flux_linkage*((float)motor->m_conf->si_motor_poles)*iq+motor->m_conf->foc_motor_ld_lq_diff*(id*iq);
-	motor->observed_torque_pedal=iq;
-/*
-	if(motor->observed_torque_pedal >0.5){
-		//current control
-		motor->timer_hold_current=motor->timer_hold_current+1;
-		motor->timer_hold_speed=0;
 
+	//torque_pedal_filtered observer
+	
+
+	float alpha= motor->previous_alpha*(0.9999)+ ((rpm- motor->past_rpm_saved)/dt)*0.0001; //moving average filter, 1 hz cutofff for dt =0.001
+	
+	motor->previous_alpha=alpha;
+
+	motor->observed_torque_pedal=t_pedal_calculator(alpha,t_e);
+	
+	//save previous values before new calculation
+	motor->past_torque_pedal_saved=motor->observed_torque_pedal;
+	motor->past_rpm_saved =rpm;
+
+
+	if(motor->control_mode_actual!=0 && motor->control_mode_actual!=1 && motor->control_mode_actual!=2){
+		//initialization
+		motor->speed_energy_model_set=0;
+		motor->control_mode_actual=0;
+		motor->previous_alpha=0;
 	}
-	else if(motor->observed_torque_pedal<0.05){
-		//speed control
-		motor->timer_hold_speed=motor->timer_hold_speed+1;
-		motor->timer_hold_current=0;
-	}
-	else{
-		motor->timer_hold_current=0;
-		motor->timer_hold_speed=0;	
-	}
-*/
-	if (motor->observed_torque_pedal>0.5 && motor->control_mode_actual==0){
+
+	if (motor->observed_torque_pedal>0.1 && motor->control_mode_actual==0){
 		//state zero-> current control when torque higher than limit for 20X dt  (100ms)
 		motor->control_mode_actual=1;//set mode to current =Tres
 
 	}
-	else if(motor->observed_torque_pedal<0.05 &&motor->control_mode_actual==1 && motor->speed_energy_model_set>=500 ){
+	else if(motor->observed_torque_pedal<0.05 && (motor->control_mode_actual==1 || motor->control_mode_actual==0) && motor->speed_energy_model_set>= 500){
 		//state current control-> speed when torque higher than limit for 500X dt  (0.5 seconds) and energy model sp is higher than 500 rpm
-		motor->control_mode_actual=2;//set mode to speed control
+		motor->control_mode_actual=2;//set mode to speed control                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 	}
-	else if(motor->observed_torque_pedal>0.5 && motor->control_mode_actual==2){
+	else if(motor->observed_torque_pedal>0.1 && motor->control_mode_actual==2){
 		//state speed control-> current control when torque higher than limit for 20X dt  (100ms)
 		motor->control_mode_actual=1;//set mode to current =Tres
 	}
-	else if(motor->speed_energy_model_set<500 && motor->control_mode_actual==2){
+	else if(motor->speed_energy_model_set<250 && motor->control_mode_actual==2){
 		//state speed control-> initial when in speed mode, and speed set lower than 500 rpm
 		motor->control_mode_actual=0;//set mode to current =Tres
 	}
 	
-	float t_res=t_res_calc(rpm,inc_angle); //t_res in Nm
+	float t_res=t_res_calc(motor-> speed_energy_model_set,inc_angle); //t_res in Nm
 	motor->res_torque_calc= t_res;
 	exec_speed_bike_delta(motor,t_res,dt);//updates motor->rpm_energy_model_set
 	motor->i_ref_t_res_calc= i_ref_t_res_calc(motor,t_res);
+	motor->m_speed_pid_set_rpm=(0.9999)*motor->m_speed_pid_set_rpm+ 0.0001*motor-> speed_energy_model_set;
 
 	if (motor->control_mode_actual==2){
 
-		motor->m_speed_pid_set_rpm= - motor->speed_energy_model_set;
 		float error = motor->m_speed_pid_set_rpm - rpm;
 
 		// Too low RPM set. Reset state, release motor and return.
+
+		/*removed to test
 		if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
 			motor->m_speed_i_term = 0.0;
 			motor->m_speed_prev_error = error;
 			motor->m_iq_set = 0.0;
 			return;
-		}
+		}*/	
 
 		// Compute parameters
 		p_term = error * conf_now->s_pid_kp * (1.0 / 20.0);
@@ -632,10 +632,12 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 			motor->iq_temp_filter=motor->i_ref_t_res_calc;
 	}	
 	else{
-		motor->iq_temp_filter=0.03;//check if direction is right
+		motor->iq_temp_filter=	 conf_now->lo_current_max * conf_now->l_current_max_scale;//against turn direction
 	}
 
-	motor->m_iq_set = 0.95*motor->m_iq_set+0.05*motor->iq_temp_filter;//smooth MA filter for iq
+	motor->m_iq_set = linear_filter(motor->iq_temp_filter,increment ,motor->m_iq_set);//smooth linearfilter for iq
+
+	
 }
 
 float foc_correct_encoder(float obs_angle, float enc_angle, float speed,
@@ -847,7 +849,7 @@ float t_res_calc(float rpm,float inc_angle){//use inc angle in degrees
 	float rho=1.225;//wheel radius, change it to config later
 	float c_wl=0.001;//bearing friction
 	float c_wb=0.001;//bearing friction
-	float t_res_static= m*g*(sin(angle_rads))+cos(angle_rads)*mu_rr*mu_floor/(r_w*r_w);//independent from speed
+	float t_res_static= -m*g*(sin(angle_rads))+cos(angle_rads)*mu_rr*mu_floor/(r_w*r_w);//independent from speed
 	float t_res_dynamic= (c_wl*rho*area*r_w*r_w +m*g*sin(angle_rads)*c_wb)*(-rpm/60);//speed dependent component
 	return (t_res_static+t_res_dynamic); //returns value in N/m //adjusted scale for test *5
 }
@@ -857,7 +859,7 @@ float i_ref_t_res_calc(motor_all_state_t *motor,float t_res){
 	//for now, it assumes imax =36A as configured.
 
 	float kT=1.5*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles);
-	float i_ref= (t_res/kT)/motor->m_conf->l_current_max;
+	float i_ref= (t_res/kT);
 	return i_ref;
 } 
 
@@ -868,12 +870,13 @@ void exec_speed_bike_delta(motor_all_state_t *motor,float t_res,float dt){
 	float iq= motor->m_motor_state.iq_filter;
 	float t_e= 1.5*motor->m_conf->foc_motor_flux_linkage*((float)motor->m_conf->si_motor_poles)*iq+motor->m_conf->foc_motor_ld_lq_diff*(id*iq);
 	float j_eq=5.57;
-	float j_m= 0.43;
-	motor->speed_energy_model_set=motor->speed_energy_model_set + (t_e-t_res)*(1/(j_eq-j_m))*dt*60*1000;//set speed from energy model in rpm updated;
-	if(motor->speed_energy_model_set <=0.0){ 
+	float j_m= 0.01646;
+	motor->speed_energy_model_set=motor->speed_energy_model_set - (t_e+t_res)*(1/(j_eq-j_m))*dt*60*10000;//set speed from energy model in rpm updated;
+
+	/*if(motor->speed_energy_model_set <=0.0){ 
 		//truncates value for energy model, not allowing speed lower than 0
 		motor->speed_energy_model_set=0.0;
-	}
+	}*/
 
 }
 float linear_filter(float new_value, float increment, float old_value) {
@@ -898,11 +901,8 @@ float filtered_derivative(float input, float prev_input, float prev_output, floa
     return output;
 }
 
-float t_pedal_calculator(motor_all_state_t *motor, float alpha){
-	float j_m = 0.43;
-	float id= motor->m_motor_state.id_filter;
-	float iq= motor->m_motor_state.iq_filter;
-	float t_e= 1.5*motor->m_conf->foc_motor_flux_linkage*((float)motor->m_conf->si_motor_poles)*iq+motor->m_conf->foc_motor_ld_lq_diff*(id*iq);
+float t_pedal_calculator(float alpha, float t_e) {
+	float j_m = 0.01646;
 	
     return alpha*j_m-t_e;
 }

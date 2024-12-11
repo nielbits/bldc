@@ -1157,13 +1157,14 @@ static void run_pid_control_speed(void) {
 	const float rpm = mcpwm_get_rpm();
 	float error = speed_pid_set_rpm - rpm;
 
-	// Too low RPM set. Stop and return.
+	/*  Too low RPM set. Stop and return./*
 	if (fabsf(speed_pid_set_rpm) < conf->s_pid_min_erpm) {
 		i_term = dutycycle_now;
 		prev_error = error;
 		mcpwm_set_duty(0.0);
 		return;
 	}
+	*/
 
 #if BLDC_SPEED_CONTROL_CURRENT
 	// Compute parameters

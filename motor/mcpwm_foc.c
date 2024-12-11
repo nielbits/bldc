@@ -352,6 +352,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	(void)conf_m2;
 #endif
 
+
 	m_init_done = false;
 
 	memset((void*)&m_motor_1, 0, sizeof(motor_all_state_t));
@@ -364,7 +365,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
 	//m_motor_1.speed_energy_model_set =0;//removed bc added to speed control start function
-	m_motor_1.control_mode_actual=0;
+	//m_motor_1.control_mode_actual=0;
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
 	init_audio_state(&m_motor_1.m_audio);
@@ -743,7 +744,8 @@ void mcpwm_foc_set_duty_noramp(float dutyCycle) {
 void mcpwm_foc_set_pid_speed(float rpm) {
 	volatile motor_all_state_t *motor = get_motor_now();
 	// //reset speed when change to speed control
-	motor->control_mode_actual=0; //reset control mode state machine
+	//motor->control_mode_actual=0; //reset control mode state machine
+	/*	
 	if (motor->m_conf->s_pid_ramp_erpms_s > 0.0 ) {
 		if (motor->m_control_mode != CONTROL_MODE_SPEED ||
 				motor->m_state != MC_STATE_RUNNING) {
@@ -754,14 +756,14 @@ void mcpwm_foc_set_pid_speed(float rpm) {
 	} else {
 		motor->m_speed_pid_set_rpm = rpm;
 	}
-
+	*/
 	motor->m_control_mode = CONTROL_MODE_SPEED;
-
+	/*
 	if (motor->m_state != MC_STATE_RUNNING &&
 			fabsf(rpm) >= motor->m_conf->s_pid_min_erpm) {
 		motor->m_motor_released = false;
 		motor->m_state = MC_STATE_RUNNING;
-	}
+	}*/
 }
 
 /**
@@ -3198,11 +3200,12 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 		motor_now->m_br_vq_before = vq_now;
 
 		// Brake when set ERPM is below min ERPM
+		/*
 		if (motor_now->m_control_mode == CONTROL_MODE_SPEED &&
 				fabsf(motor_now->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
 			control_duty = true;
 			duty_set = 0.0;
-		}
+		}*/
 
 		// Reset integrator when leaving duty cycle mode, as the windup protection is not too fast. Making
 		// better windup protection is probably better, but not easy.
@@ -5204,5 +5207,5 @@ float mcpwm_foc_get_bike_set_rpm(void) {
 	return get_motor_now()->speed_energy_model_set;
 }
 float mcpwm_foc_get_bike_control_mode(void) {
-	return get_motor_now()->control_mode_actual;
+	return (float)get_motor_now()->control_mode_actual;
 }

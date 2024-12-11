@@ -252,9 +252,7 @@ typedef struct {
 	float i_ref_t_res_calc;
 	int control_mode_actual;
 	float iq_temp_filter;
-	int timer_hold_current;
-	int timer_hold_speed;
-
+	float previous_alpha;
 
 } motor_all_state_t;
 
@@ -281,7 +279,7 @@ void exec_speed_bike_delta(motor_all_state_t *motort_res,float t_res, float dt);
 float linear_filter(float new_value, float increment, float old_value) ;
 void torque_pedal_observer(motor_all_state_t *motor,float dt);
 float filtered_derivative(float input, float prev_input, float prev_output, float fc, float dt);
-float t_pedal_calculator(motor_all_state_t *motor, float alpha);
+float t_pedal_calculator(float alpha,float t_e);
 
 
 
