@@ -534,20 +534,18 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float air_ro=1.2; //air density
 	float mu= 0.005; //rolling friction
 	float rider_weight= 85.0; 
-	float bike_weight= 10.0;
+	float bike_weight= 8.0;
 	float slope=0; //inclination angle, degrees
 	
 	float wheel_radius= 0.3556; //bike wheel radius;
 	float crank_diam=200.0;
-	float gear_ratio = 0.75;
-	float mech_gearing=(25*20)/(60*crank_diam);//mechanical gearing from motor to crank = 24 @ 2.1.2025
+	float gear_ratio = 1.6625;
+	float mech_gearing=(60*crank_diam)/(25*20);//mechanical gearing from motor to crank = 24 @ 2.1.2025
 
-	float gearing = mech_gearing/gear_ratio;
-
-	float speed			= (float)rpm*gearing*3.141592*2*wheel_radius/60;//speed in m/s
-
-    float F_air       = - speed*speed*air_ro*0.25;
-    float F_roll      = - (bike_weight+rider_weight)*9.81*mu;
+	float gearing = mech_gearing/gear_ratio;// r_crank / r_motor, if they were directly connected
+	float speed			= -(float)rpm/60*3.141592*2*wheel_radius/gearing;//speed in m/s, 0.57 was a correction
+    float F_air       =  speed*speed*air_ro*0.25;
+    float F_roll      =  (bike_weight+rider_weight)*9.81*mu;
     float F_incline   = 0;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00));
 	
 	//F_res calculation
@@ -557,7 +555,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// i_res calculation
 
-	float T_res=F_combine*wheel_radius*mech_gearing;
+	float T_res=F_combine*wheel_radius/gearing;
 	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*motor->m_conf->si_motor_poles/2;
 	float i_res= T_res/kT;
 
