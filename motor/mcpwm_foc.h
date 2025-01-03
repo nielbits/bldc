@@ -87,6 +87,19 @@ float mcpwm_foc_get_mod_beta_measured(void);
 float mcpwm_foc_get_est_lambda(void);
 float mcpwm_foc_get_est_res(void);
 float mcpwm_foc_get_est_ind(void);
+
+
+
+
+
+// Additional functions for debugging
+
+float mcpwm_foc_get_speed(void);
+float mcpwm_foc_get_f_air(void);
+float mcpwm_foc_get_f_combine(void);
+float mcpwm_foc_get_i_res(void);
+
+//
 int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ratio, bool *inverted);
 int mcpwm_foc_measure_resistance(float current, int samples, bool stop_after, float *resistance);
 int mcpwm_foc_measure_inductance(float duty, int samples, float *curr, float *ld_lq_diff, float *inductance);

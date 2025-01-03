@@ -536,25 +536,36 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float rider_weight= 85.0; 
 	float bike_weight= 10.0;
 	float slope=0; //inclination angle, degrees
-	float wheel_radius= 0.3556; //bike wheel radius
-    float F_air       = - rpm*rpm*air_ro*0.25;
+	
+	float wheel_radius= 0.3556; //bike wheel radius;
+	float crank_diam=200.0;
+	float gear_ratio = 0.75;
+	float mech_gearing=(25*20)/(60*crank_diam);//mechanical gearing from motor to crank = 24 @ 2.1.2025
+
+	float gearing = mech_gearing/gear_ratio;
+
+	float speed			= (float)rpm*gearing*3.141592*2*wheel_radius/60;//speed in m/s
+
+    float F_air       = - speed*speed*air_ro*0.25;
     float F_roll      = - (bike_weight+rider_weight)*9.81*mu;
-    float F_incline   = - (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00));
+    float F_incline   = 0;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00));
 	
 	//F_res calculation
 
 	float F_combine = F_air + F_roll + F_incline;//resistance force
-	float crank_diam=200.0;
-	float gear_ratio = 0.75;
-	float mech_gearing=(25*20)/(60*crank_diam);//mechanical gearing from motor to crank
 
-	float gearing = mech_gearing/gear_ratio;
 
 	// i_res calculation
 
-	float T_res=F_combine*wheel_radius/mech_gearing;
+	float T_res=F_combine*wheel_radius*mech_gearing;
 	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*motor->m_conf->si_motor_poles/2;
 	float i_res= T_res/kT;
+
+
+	motor->d_speed=speed;
+	motor->d_f_air=F_air;
+	motor->d_f_combine=F_combine;
+	motor->d_i_res=i_res;
 
 	/*todo, use these variables to configure dynamically
 	//conf->si_gear_ratio = buffer_get_float32_auto(buffer, &ind);

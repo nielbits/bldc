@@ -239,6 +239,14 @@ typedef struct {
 	float p_ld;
 	float p_inv_ld_lq; // (1.0/lq - 1.0/ld)
 	float p_v2_v3_inv_avg_half; // (0.5/ld + 0.5/lq)
+
+
+	//values_for_debugging
+	float d_speed;
+	float d_f_air;
+	float d_f_combine;
+	float d_i_res;
+	
 } motor_all_state_t;
 
 // Functions

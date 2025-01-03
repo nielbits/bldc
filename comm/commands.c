@@ -427,13 +427,16 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			buffer_append_float32(send_buffer, mcpwm_foc_get_iq_set(), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 10)) {
-			buffer_append_float32(send_buffer, mc_interface_get_amp_hours_charged(false), 1e4, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_speed(), 1e4, &ind);
+			//buffer_append_float32(send_buffer, mc_interface_get_amp_hours_charged(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 11)) {
-			buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_f_combine(), 1e4, &ind);
+			//buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 12)) {
-			buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_f_air(), 1e4, &ind);
+			//buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 13)) {
 			buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);
@@ -445,7 +448,8 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			send_buffer[ind++] = mc_interface_get_fault();
 		}
 		if (mask & ((uint32_t)1 << 16)) {
-			buffer_append_float32(send_buffer, mc_interface_get_pid_pos_now(), 1e6, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_i_res(), 1e6, &ind);
+			//buffer_append_float32(send_buffer, mc_interface_get_pid_pos_now(), 1e6, &ind);
 		}
 		if (mask & ((uint32_t)1 << 17)) {
 			uint8_t current_controller_id = app_get_configuration()->controller_id;

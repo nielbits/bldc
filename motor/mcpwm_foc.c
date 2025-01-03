@@ -5096,3 +5096,19 @@ static void terminal_plot_hfi(int argc, const char **argv) {
 		commands_printf("This command requires one argument.\n");
 	}
 }
+
+
+// Additional functions for debugging
+
+float mcpwm_foc_get_i_res(void) {
+	return get_motor_now()->d_i_res;
+}
+float mcpwm_foc_get_speed(void){
+	return get_motor_now()->d_speed;
+}
+float mcpwm_foc_get_f_air(void){
+	return get_motor_now()->d_f_air;
+}
+float mcpwm_foc_get_f_combine(void){
+	return get_motor_now()->d_f_combine;
+}
