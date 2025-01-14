@@ -1104,6 +1104,11 @@ void mcpwm_foc_set_gear_ratio(float gear_ratio) {
 }
 
 
+float mcpwm_foc_get_gear_ratio() {
+	return get_motor_now()->gear_ratio_bike;
+}
+
+
 float mcpwm_foc_get_tot_current_motor(bool is_second_motor) {
 	volatile motor_all_state_t *motor = M_MOTOR(is_second_motor);
 	return SIGN(motor->m_motor_state.vq * motor->m_motor_state.iq) * motor->m_motor_state.i_abs;

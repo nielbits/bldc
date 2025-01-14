@@ -404,7 +404,8 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_motor_current(), 1e2, &ind);
 		}
 		if (mask & ((uint32_t)1 << 3)) {
-			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_input_current(), 1e2, &ind);
+			//buffer_append_float32(send_buffer, mc_interface_read_reset_avg_input_current(), 1e2, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_gear_ratio(), 1e2, &ind);
 		}
 		if (mask & ((uint32_t)1 << 4)) {
 			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_id(), 1e2, &ind);
@@ -542,7 +543,12 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		int32_t ind = 0;
 		pwm_servo_set_servo_out(buffer_get_float16(data, 1000.0, &ind));
 	} break;
-
+	
+	case COMM_SET_GEAR_RATIO: {
+		int32_t ind = 0;
+		mc_interface_set_gear_ratio((float)buffer_get_int32(data, &ind) / 1000.0);
+		timeout_reset();
+	} break;
 	case COMM_SET_MCCONF: {
 #ifndef	HW_MCCONF_READ_ONLY
 		mc_configuration *mcconf = mempools_alloc_mcconf();
@@ -551,6 +557,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		if (confgenerator_deserialize_mcconf(data, mcconf)) {
 			utils_truncate_number(&mcconf->l_current_max_scale , 0.0, 1.0);
 			utils_truncate_number(&mcconf->l_current_min_scale , 0.0, 1.0);
+	
 
 #if defined(HW_HAS_DUAL_MOTORS) & !defined(HW_SET_SINGLE_MOTOR)
 			mcconf->motor_type = MOTOR_TYPE_FOC;
