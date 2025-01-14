@@ -1099,6 +1099,7 @@ typedef enum {
 	//COMM_PINLOCK3							= 155,
 
 	COMM_SHUTDOWN							= 156,
+	COMM_SET_GEAR_RATIO						= 157, //added in order to be able to change gear ratio through interface(needed for FF)
 } COMM_PACKET_ID;
 
 // CAN commands

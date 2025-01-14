@@ -2796,6 +2796,25 @@ void mc_interface_stat_reset(void) {
 	s->max_temp_motor = -300.0;
 }
 
+void mc_interface_set_gear_ratio(float gear_ratio) {
+
+	if (mc_interface_try_input()) {
+		return;
+	}
+
+	switch (motor_now()->m_conf.motor_type) {
+	case MOTOR_TYPE_BLDC:
+	case MOTOR_TYPE_DC:
+	case MOTOR_TYPE_FOC:
+		mcpwm_foc_set_gear_ratio(gear_ratio);
+		break;
+	default:
+		break;
+	}
+
+	events_add("set_gear_ratio", gear_ratio);
+}
+
 static THD_FUNCTION(stat_thread, arg) {
 	(void)arg;
 

@@ -246,8 +246,13 @@ typedef struct {
 	float d_f_air;
 	float d_f_combine;
 	float d_i_res;
-	
+
+	//filtered speed error and resp. parameters
+
+	float gear_ratio_bike;
+
 } motor_all_state_t;
+
 
 // Functions
 void foc_observer_update(float v_alpha, float v_beta, float i_alpha, float i_beta,
@@ -263,5 +268,4 @@ float foc_correct_hall(float angle, float dt, motor_all_state_t *motor, int hall
 void foc_run_fw(motor_all_state_t *motor, float dt);
 void foc_hfi_adjust_angle(float ang_err, motor_all_state_t *motor, float dt);
 void foc_precalc_values(motor_all_state_t *motor);
-
 #endif /* FOC_MATH_H_ */

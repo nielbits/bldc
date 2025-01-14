@@ -539,15 +539,17 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	
 	float wheel_radius= 0.3556; //bike wheel radius;
 	float crank_diam=200.0;
-	float gear_ratio = 1.6625;
-	float mech_gearing=(60*crank_diam)/(25*20);//mechanical gearing from motor to crank = 24 @ 2.1.2025
+	float gear_ratio = 3.4875;
+	float mech_gearing=(60.0*crank_diam)/(25.0*20.0);//mechanical gearing from motor to crank = 24 @ 2.1.2025
 
-	float gearing = mech_gearing/gear_ratio;// r_crank / r_motor, if they were directly connected
-	float speed			= -(float)rpm/60*3.141592*2*wheel_radius/gearing;//speed in m/s, 0.57 was a correction
+	float gearing = mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
+	float speed			= -(float)rpm/60*3.141592*2*wheel_radius/gearing;//speed in m/s
     float F_air       =  speed*speed*air_ro*0.25;
-    float F_roll      =  (bike_weight+rider_weight)*9.81*mu;
-    float F_incline   = 0;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00));
+    float F_roll      = 0.000;//(bike_weight+rider_weight)*9.81*mu*speed; //addded speed to rolling resistance calculation, https://blog.flocycling.com/aero-wheels/th-rolling-resistance-impedance-for-cyclists/
+    float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00));
+	 
 	
+
 	//F_res calculation
 
 	float F_combine = F_air + F_roll + F_incline;//resistance force
@@ -558,7 +560,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float T_res=F_combine*wheel_radius/gearing;
 	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*motor->m_conf->si_motor_poles/2;
 	float i_res= T_res/kT;
-
 
 	motor->d_speed=speed;
 	motor->d_f_air=F_air;
@@ -575,9 +576,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	*/
 
 
-
-
-
 	//---------------------------------------------------------------------
 
 	// Compute parameters
@@ -587,12 +585,13 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// Filter D
 	UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
 	d_term = motor->m_speed_d_filter;
-
+	
 	// Store previous error
 	motor->m_speed_prev_error = error;
 
 	// Calculate output
-	float output = p_term + motor->m_speed_i_term + d_term;
+	i_res= i_res/((float)conf_now->lo_current_max *(float)conf_now->l_current_max_scale);
+	float output = p_term + motor->m_speed_i_term + d_term;// + i_res;
 	utils_truncate_number_abs(&output, 1.0);
 
 	// Integrator windup protection
@@ -614,7 +613,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		}
 	}
 
-	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale + i_res;
+	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
 }
 
 float foc_correct_encoder(float obs_angle, float enc_angle, float speed,
@@ -810,4 +809,16 @@ void foc_precalc_values(motor_all_state_t *motor) {
 	motor->p_inv_ld_lq = (1.0 / motor->p_lq - 1.0 / motor->p_ld);
 	motor->p_v2_v3_inv_avg_half = (0.5 / motor->p_lq + 0.5 / motor->p_ld) * 0.9; // With the 0.9 we undo the adjustment from the detection
 	motor->m_observer_state.lambda_est = conf_now->foc_motor_flux_linkage;
+}
+
+
+float high_pass_filter(float input, float alpha, float *prev_input, float *prev_output) {
+    // Apply the high-pass filter formula
+    float output = alpha * ((*prev_output) + input - (*prev_input));
+
+    // Update previous input and output values
+    *prev_input = input;
+    *prev_output = output;
+
+    return output;
 }

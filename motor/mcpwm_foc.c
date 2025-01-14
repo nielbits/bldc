@@ -1099,6 +1099,10 @@ void mcpwm_foc_set_current_off_delay(float delay_sec) {
 		get_motor_now()->m_current_off_delay = delay_sec;
 	}
 }
+void mcpwm_foc_set_gear_ratio(float gear_ratio) {
+	get_motor_now()->gear_ratio_bike= gear_ratio;
+}
+
 
 float mcpwm_foc_get_tot_current_motor(bool is_second_motor) {
 	volatile motor_all_state_t *motor = M_MOTOR(is_second_motor);
