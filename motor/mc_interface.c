@@ -623,9 +623,7 @@ void mc_interface_set_pid_pos(float pos) {
 	}
 
 	volatile mc_configuration *conf = &motor_now()->m_conf;
-
 	motor_now()->m_position_set = pos;
-
 	pos += motor_now()->m_conf.p_pid_offset;
 	pos *= DIR_MULT;
 
@@ -2784,6 +2782,7 @@ float mc_interface_stat_temp_motor_max(void) {
 	return motor_now()->m_stats.max_temp_motor;
 }
 
+
 float mc_interface_stat_count_time(void) {
 	return UTILS_AGE_S(motor_now()->m_stats.time_start);
 }
@@ -2794,25 +2793,6 @@ void mc_interface_stat_reset(void) {
 	s->time_start = chVTGetSystemTimeX();
 	s->max_temp_mos = -300.0;
 	s->max_temp_motor = -300.0;
-}
-
-void mc_interface_set_gear_ratio(float gear_ratio) {
-
-	if (mc_interface_try_input()) {
-		return;
-	}
-
-	switch (motor_now()->m_conf.motor_type) {
-	case MOTOR_TYPE_BLDC:
-	case MOTOR_TYPE_DC:
-	case MOTOR_TYPE_FOC:
-		mcpwm_foc_set_gear_ratio(gear_ratio);
-		break;
-	default:
-		break;
-	}
-
-	events_add("set_gear_ratio", gear_ratio);
 }
 
 static THD_FUNCTION(stat_thread, arg) {

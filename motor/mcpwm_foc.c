@@ -1100,12 +1100,16 @@ void mcpwm_foc_set_current_off_delay(float delay_sec) {
 	}
 }
 void mcpwm_foc_set_gear_ratio(float gear_ratio) {
-	get_motor_now()->gear_ratio_bike= gear_ratio;
+	volatile motor_all_state_t *motor = get_motor_now();
+	//motor->m_speed_pid_set_rpm = mcpwm_foc_get_rpm()
+	motor->gear_ratio_bike=gear_ratio;
 }
 
 
 float mcpwm_foc_get_gear_ratio() {
-	return get_motor_now()->gear_ratio_bike;
+	volatile motor_all_state_t *motor = get_motor_now();
+	float gr=motor->gear_ratio_bike;
+	return gr;
 }
 
 
@@ -1160,7 +1164,7 @@ float mcpwm_foc_get_rpm_fast(void) {
 	return RADPS2RPM_f(get_motor_now()->m_speed_est_fast);
 }
 
-/**
+/*
  * Same as above, but uses the faster and noisier estimator.
  */
 float mcpwm_foc_get_rpm_faster(void) {

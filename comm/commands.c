@@ -516,6 +516,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 	case COMM_SET_POS: {
 		int32_t ind = 0;
 		mc_interface_set_pid_pos((float)buffer_get_int32(data, &ind) / 1000000.0);
+
 		timeout_reset();
 	} break;
 
@@ -546,9 +547,12 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 	
 	case COMM_SET_GEAR_RATIO: {
 		int32_t ind = 0;
-		mc_interface_set_gear_ratio((float)buffer_get_int32(data, &ind) / 1000.0);
+		float gr=(float)buffer_get_int32(data, &ind) / 1000000.0;
+		mcpwm_foc_set_gear_ratio(gr);
 		timeout_reset();
 	} break;
+
+
 	case COMM_SET_MCCONF: {
 #ifndef	HW_MCCONF_READ_ONLY
 		mc_configuration *mcconf = mempools_alloc_mcconf();

@@ -539,9 +539,11 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	
 	float wheel_radius= 0.3556; //bike wheel radius;
 	float crank_diam=200.0;
-	float gear_ratio = motor->gear_ratio_bike;
+	float gear_ratio = 0.75; //motor->gear_ratio_bike;
 	float mech_gearing=(60.0*crank_diam)/(25.0*20.0);//mechanical gearing from motor to crank = 24 @ 2.1.2025
-
+	if (motor->gear_ratio_bike<5){
+		gear_ratio = motor->gear_ratio_bike;
+	}
 	float gearing = mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
 	float speed			= -(float)rpm/60*3.141592*2*wheel_radius/gearing;//speed in m/s
     float F_air       =  speed*speed*air_ro*0.25;
