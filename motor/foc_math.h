@@ -245,11 +245,31 @@ typedef struct {
 	float d_speed;
 	float d_f_air;
 	float d_f_combine;
+	float d_f_bearings;
+	float d_f_roll;
+
 	float d_i_res;
 
 	//filtered speed error and resp. parameters
 
 	float gear_ratio_bike;
+
+
+    // Band_pass-filter coefficients - should be preserved between calls
+    double bp_b0;
+	double bp_b1;
+	double bp_b2;
+    double bp_a1;
+	double bp_a2;
+    // State variables - should be preserved between calls
+    double bp_x1;
+	double bp_x2;
+    double bp_y1;
+	double bp_y2;
+    // First call flag - should be initialized to 1
+    int bp_firstCall;
+
+	float i_res_filter;
 
 } motor_all_state_t;
 
@@ -268,4 +288,5 @@ float foc_correct_hall(float angle, float dt, motor_all_state_t *motor, int hall
 void foc_run_fw(motor_all_state_t *motor, float dt);
 void foc_hfi_adjust_angle(float ang_err, motor_all_state_t *motor, float dt);
 void foc_precalc_values(motor_all_state_t *motor);
+float band_pass_filter(float input,float centerFreq,   float bandwidth, float sampleRate, motor_all_state_t *motor);
 #endif /* FOC_MATH_H_ */

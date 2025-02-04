@@ -365,6 +365,9 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_last = 1.0;
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
+	m_motor_1.bp_firstCall=1;
+
+
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
 	init_audio_state(&m_motor_1.m_audio);
@@ -585,6 +588,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 			"Enable HFI plotting. 0: off, 1: DFT, 2: Raw",
 			"[en]",
 			terminal_plot_hfi);
+
 
 	m_init_done = true;
 }
@@ -1112,6 +1116,18 @@ float mcpwm_foc_get_gear_ratio() {
 	return gr;
 }
 
+float mcpwm_foc_get_f_bearings(){
+	volatile motor_all_state_t *motor = get_motor_now();
+
+	return motor->d_f_bearings;
+
+
+}
+float mcpwm_foc_get_f_roll(){
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor->d_f_roll;
+	
+}
 
 float mcpwm_foc_get_tot_current_motor(bool is_second_motor) {
 	volatile motor_all_state_t *motor = M_MOTOR(is_second_motor);

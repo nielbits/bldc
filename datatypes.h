@@ -1410,4 +1410,25 @@ typedef struct __attribute__((packed)) {
 	uint8_t hw_config[128];
 } backup_data;
 
+
+typedef struct {
+    // Filter coefficients
+    double b0;
+    double b1;
+    double b2;
+	double a0;
+    double a1;
+    double a2;
+    
+    // State variables
+    double x1;  // Previous input
+    double x2;  // Input from 2 samples ago
+    double y1;  // Previous output
+    double y2;  // Output from 2 samples ago
+    
+    // Filter parameters
+    float centerFreq;
+    float bandwidth;
+    float sampleRate;
+} BandpassFilter;
 #endif /* DATATYPES_H_ */

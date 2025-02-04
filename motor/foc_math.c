@@ -532,41 +532,90 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	//next update will be a predictor considering the last 10 values? possibly NN or better observer
 
 	float air_ro=1.2; //air density
-	float mu= 0.005; //rolling friction
+	float mu_rr= 0.0015; //rolling friction
 	float rider_weight= 85.0; 
 	float bike_weight= 8.0;
+	float biker_height=1.8;
+	float k = 0.2; //coefficient for sectional area
+	float area= biker_height*k*k;
+	float c_wl= 1.0;//air resistance coefficient
+	float c_wb=0.0015;
 	float slope=0; //inclination angle, degrees
 	
 	float wheel_radius= 0.3556; //bike wheel radius;
 	float crank_diam=200.0;
-	float gear_ratio = 0.75; //motor->gear_ratio_bike;
+	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
 	float mech_gearing=(60.0*crank_diam)/(25.0*20.0);//mechanical gearing from motor to crank = 24 @ 2.1.2025
-	if (motor->gear_ratio_bike<5){
-		gear_ratio = motor->gear_ratio_bike;
-	}
 	float gearing = mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
 	float speed			= -(float)rpm/60*3.141592*2*wheel_radius/gearing;//speed in m/s
-    float F_air       =  speed*speed*air_ro*0.25;
-    float F_roll      = 0.000;//(bike_weight+rider_weight)*9.81*mu*speed; //addded speed to rolling resistance calculation, https://blog.flocycling.com/aero-wheels/th-rolling-resistance-impedance-for-cyclists/
-    float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00));
-	 
-	
+    float F_air       = speed*speed*air_ro*area*c_wl;
+    float F_roll      = 0.0000;//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
+	float r_bearings=0.014;
+	float k_v_bw= 0.00001;
+	float filter_constant = exp(-2.0 * M_PI * 1.0 * dt);
+	float alpha =0.00009999;
 
+    float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed
+	 
+	float F_bearings= (bike_weight+rider_weight)*c_wb*9.81*(speed/wheel_radius)/r_bearings*k_v_bw;
 	//F_res calculation
 
-	float F_combine = F_air + F_roll + F_incline;//resistance force
+	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
 
 
-	// i_res calculation
+		// i_res calculation
 
 	float T_res=F_combine*wheel_radius/gearing;
 	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*motor->m_conf->si_motor_poles/2;
 	float i_res= T_res/kT;
 
-	motor->d_speed=speed;
+	//UTILS_DC_HP(motor->i_res_filter,i_res ,filter_constant);
+	UTILS_DC_REMOVE(motor->i_res_filter,i_res,alpha);
+	//float i_res_filter=band_pass_filter(i_res,1.5,4.0,dt,motor);
+	double input = (double)i_res;
+	float bandwidth=100.0;
+	//float sampleRate=1/dt;//=0.001 in config;
+	float centerFreq=2.0;
+
+	
+	if (motor->bp_firstCall==1) {
+        float omega = 2.0 * M_PI * (centerFreq /2500.0);//later we can add sample rate to config
+		float Q = centerFreq/bandwidth;  // Quality factor
+		float alpha = sin(omega)/(2.0 * Q);
+        float cosw = cos(omega);
+        
+        // Calculate normalized coefficients
+        motor->bp_b0 = alpha / (1.0 + alpha);
+        motor->bp_b1 = 0.0;
+        motor->bp_b2 = -alpha / (1.0 + alpha);
+        
+        motor->bp_a1 = -2.0 * cosw / (1.0 + alpha);
+        motor->bp_a2 = (1.0 - alpha) / (1.0 + alpha);
+        
+        // Initialize state variables
+        motor->bp_x1 = 0.0;
+        motor->bp_x2 = 0.0;
+        motor->bp_y1 = 0.0;
+        motor->bp_y2 = 0.0;
+        motor->bp_firstCall = 0;  // Clear first call flag
+    }
+    
+    // Compute output
+    float output_filter = motor->bp_b0 * input + motor->bp_b1 * (motor->bp_x1) +  motor->bp_b2 * (motor->bp_x2) - motor->bp_a1 * (motor->bp_y1) - motor->bp_a2 * (motor->bp_y2);
+  
+    // Update state
+    motor->bp_x2 = motor->bp_x1;
+    motor->bp_x1 = input;
+    motor->bp_y2 = motor->bp_y1;
+    motor->bp_y1 = output_filter;
+
+
+	motor->d_speed=dt;
 	motor->d_f_air=F_air;
 	motor->d_f_combine=F_combine;
-	motor->d_i_res=i_res;
+	motor->d_f_bearings=F_bearings;
+	motor->d_i_res=output_filter;
+
 
 	/*todo, use these variables to configure dynamically
 	//conf->si_gear_ratio = buffer_get_float32_auto(buffer, &ind);
@@ -592,8 +641,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->m_speed_prev_error = error;
 
 	// Calculate output
-	i_res= i_res/((float)conf_now->lo_current_max *(float)conf_now->l_current_max_scale);
-	float output = p_term + motor->m_speed_i_term + d_term;// + i_res;
+	output_filter= 4.0*(output_filter/((float)conf_now->lo_current_max *(float)conf_now->l_current_max_scale));
+	float output = p_term + motor->m_speed_i_term + d_term - output_filter;
 	utils_truncate_number_abs(&output, 1.0);
 
 	// Integrator windup protection
@@ -813,14 +862,40 @@ void foc_precalc_values(motor_all_state_t *motor) {
 	motor->m_observer_state.lambda_est = conf_now->foc_motor_flux_linkage;
 }
 
+/*
+float band_pass_filter(float input,float centerFreq,  float bandwidth, float sampleRate, motor_all_state_t *motor){
+    // Initialize coefficients on first call
 
-float high_pass_filter(float input, float alpha, float *prev_input, float *prev_output) {
-    // Apply the high-pass filter formula
-    float output = alpha * ((*prev_output) + input - (*prev_input));
-
-    // Update previous input and output values
-    *prev_input = input;
-    *prev_output = output;
-
-    return output;
-}
+    if (motor->bp_firstCall) {
+        double omega = 2.0 * M_PI * (double)(centerFreq / sampleRate);
+        double alpha = sin(omega) * sinh(log(2.0) / (double)(2.0 * bandwidth) * omega / sin(omega));
+        double cosw = cos(omega);
+        
+        // Calculate normalized coefficients
+        motor->bp_b0 = alpha / (1.0 + alpha);
+        motor->bp_b1 = 0.0;
+        motor->bp_b2 = -alpha / (1.0 + alpha);
+        
+        motor->bp_a1 = -2.0 * cosw / (1.0 + alpha);
+        motor->bp_a2 = (1.0 - alpha) / (1.0 + alpha);
+        
+        // Initialize state variables
+        motor->bp_x1 = 0.0;
+        motor->bp_x2 = 0.0;
+        motor->bp_y1 = 0.0;
+        motor->bp_y2 = 0.0;
+        
+        motor->bp_firstCall = 0;  // Clear first call flag
+    }
+    
+    // Compute output
+    double output_filter = motor->bp_b0 * (double)input + motor->bp_b1 * (motor->bp_x1) +  motor->bp_b2 * (motor->bp_x2) - motor->bp_a1 * (motor->bp_y1) - motor->bp_a2 * (motor->bp_y2);
+  
+    // Update state
+    motor->bp_x2 = motor->bp_x1;
+    motor->bp_x1 = (double)input;
+    motor->bp_y2 = motor->bp_y1;
+    motor->bp_y1 = output;
+    
+    return (float)output;
+}*/

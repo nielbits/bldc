@@ -99,6 +99,18 @@ void utils_rotate_vector3(float *input, float *rotation, float *output, bool rev
  */
 #define UTILS_LP_FAST(value, sample, filter_constant)	(value -= (filter_constant) * ((value) - (sample)))
 
+//formula to calculate HP filter constant
+//filter_constant = exp(-2.0 * M_PI * cutoff_freq * sampling_period);
+
+#define UTILS_HP_FAST(value, sample, filter_constant) (value += (filter_constant) * ((sample) - (value)))
+
+#define UTILS_DC_HP(value, sample, filter_constant) (value = (filter_constant) * ((value) + (sample) - 2 * (value)))
+
+
+#define UTILS_DC_REMOVE(value, sample, alpha) (value = (alpha) * ((value) - (sample)))
+
+//alpha should be about 
+
 /**
  * A fast approximation of a moving average filter with N samples. See
  * https://en.wikipedia.org/wiki/Moving_average#Exponential_moving_average

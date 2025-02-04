@@ -395,10 +395,13 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		}
 
 		if (mask & ((uint32_t)1 << 0)) {
-			buffer_append_float16(send_buffer, mc_interface_temp_fet_filtered(), 1e1, &ind);
+			//buffer_append_float16(send_buffer, mc_interface_temp_fet_filtered(), 1e1, &ind);
+			buffer_append_float16(send_buffer, mcpwm_foc_get_f_bearings(), 1e1, &ind);
 		}
 		if (mask & ((uint32_t)1 << 1)) {
-			buffer_append_float16(send_buffer, mc_interface_temp_motor_filtered(), 1e1, &ind);
+			//buffer_append_float16(send_buffer, mc_interface_temp_motor_filtered(), 1e1, &ind);
+			buffer_append_float16(send_buffer, mcpwm_foc_get_f_roll(), 1e1, &ind);
+
 		}
 		if (mask & ((uint32_t)1 << 2)) {
 			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_motor_current(), 1e2, &ind);
