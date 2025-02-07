@@ -256,18 +256,18 @@ typedef struct {
 
 
     // Band_pass-filter coefficients - should be preserved between calls
-    double bp_b0;
-	double bp_b1;
-	double bp_b2;
-    double bp_a1;
-	double bp_a2;
+    double hp_b0;
+	double hp_b1;
+	double hp_b2;
+    double hp_a1;
+	double hp_a2;
     // State variables - should be preserved between calls
-    double bp_x1;
-	double bp_x2;
-    double bp_y1;
-	double bp_y2;
+    double hp_x1;
+	double hp_x2;
+    double hp_y1;
+	double hp_y2;
     // First call flag - should be initialized to 1
-    int bp_firstCall;
+    int hp_firstCall;
 
 	float i_res_filter;
 

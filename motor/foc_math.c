@@ -17,6 +17,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+
 #include "foc_math.h"
 #include "utils_math.h"
 #include <math.h>
@@ -573,48 +574,51 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	UTILS_DC_REMOVE(motor->i_res_filter,i_res,alpha);
 	//float i_res_filter=band_pass_filter(i_res,1.5,4.0,dt,motor);
 	double input = (double)i_res;
-	float bandwidth=100.0;
-	//float sampleRate=1/dt;//=0.001 in config;
-	float centerFreq=2.0;
 
-	
-	if (motor->bp_firstCall==1) {
-        float omega = 2.0 * M_PI * (centerFreq /2500.0);//later we can add sample rate to config
-		float Q = centerFreq/bandwidth;  // Quality factor
-		float alpha = sin(omega)/(2.0 * Q);
-        float cosw = cos(omega);
+	//float sampleRate=1/dt;//=0.001 in config;
+	float fs = 2500.0f;   // Sampling frequency
+	float fc = 0.2f;      // Cutoff frequency (1 Hz)
+
+ if (motor->hp_firstCall) {
+        double fs = 2500.0;
+        double fc = 0.5;
+        double omega0 = 2.0 * M_PI * fc;
+        double Q = 1.0 / sqrt(2.0);
         
-        // Calculate normalized coefficients
-        motor->bp_b0 = alpha / (1.0 + alpha);
-        motor->bp_b1 = 0.0;
-        motor->bp_b2 = -alpha / (1.0 + alpha);
+        double tan_term = tan(omega0 / (2.0 * fs));
+        double norm_factor = 1.0 + tan_term/Q + tan_term*tan_term;
         
-        motor->bp_a1 = -2.0 * cosw / (1.0 + alpha);
-        motor->bp_a2 = (1.0 - alpha) / (1.0 + alpha);
+        motor->hp_b0 = 1.0 / norm_factor;
+        motor->hp_b1 = -2.0 * motor->hp_b0;
+        motor->hp_b2 = motor->hp_b0;
         
-        // Initialize state variables
-        motor->bp_x1 = 0.0;
-        motor->bp_x2 = 0.0;
-        motor->bp_y1 = 0.0;
-        motor->bp_y2 = 0.0;
-        motor->bp_firstCall = 0;  // Clear first call flag
+        motor->hp_a1 = 2.0 * (tan_term*tan_term - 1.0) / norm_factor;
+        motor->hp_a2 = (1.0 - tan_term/Q + tan_term*tan_term) / norm_factor;
+        
+        motor->hp_x1 = motor->hp_x2 = 0.0;
+        motor->hp_y1 = motor->hp_y2 = 0.0;
+        motor->hp_firstCall = 0;
     }
     
-    // Compute output
-    float output_filter = motor->bp_b0 * input + motor->bp_b1 * (motor->bp_x1) +  motor->bp_b2 * (motor->bp_x2) - motor->bp_a1 * (motor->bp_y1) - motor->bp_a2 * (motor->bp_y2);
-  
-    // Update state
-    motor->bp_x2 = motor->bp_x1;
-    motor->bp_x1 = input;
-    motor->bp_y2 = motor->bp_y1;
-    motor->bp_y1 = output_filter;
-
-
-	motor->d_speed=dt;
-	motor->d_f_air=F_air;
-	motor->d_f_combine=F_combine;
-	motor->d_f_bearings=F_bearings;
-	motor->d_i_res=output_filter;
+    double output_filter = motor->hp_b0 * input + 
+                    motor->hp_b1 * motor->hp_x1 + 
+                    motor->hp_b2 * motor->hp_x2 - 
+                    motor->hp_a1 * motor->hp_y1 - 
+                    motor->hp_a2 * motor->hp_y2;
+    
+    motor->hp_x2 = motor->hp_x1;
+    motor->hp_x1 = input;
+    motor->hp_y2 = motor->hp_y1;
+    motor->hp_y1 = output_filter;
+    
+	
+	// Other motor variables remain unchanged
+		motor->d_speed = dt;
+		motor->d_f_air = F_air;
+		motor->d_f_combine = F_combine;
+		motor->d_f_bearings = F_bearings;
+	// Assign filtered value
+		motor->d_i_res=4*output_filter;
 
 
 	/*todo, use these variables to configure dynamically
@@ -641,9 +645,10 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->m_speed_prev_error = error;
 
 	// Calculate output
-	output_filter= 4.0*(output_filter/((float)conf_now->lo_current_max *(float)conf_now->l_current_max_scale));
-	float output = p_term + motor->m_speed_i_term + d_term - output_filter;
+	output_filter= (output_filter/((float)conf_now->lo_current_max *(float)conf_now->l_current_max_scale));
+	float output = p_term + motor->m_speed_i_term + d_term - 4*output_filter;
 	utils_truncate_number_abs(&output, 1.0);
+
 
 	// Integrator windup protection
 	motor->m_speed_i_term += error * conf_now->s_pid_ki * dt * (1.0 / 20.0);
@@ -861,41 +866,3 @@ void foc_precalc_values(motor_all_state_t *motor) {
 	motor->p_v2_v3_inv_avg_half = (0.5 / motor->p_lq + 0.5 / motor->p_ld) * 0.9; // With the 0.9 we undo the adjustment from the detection
 	motor->m_observer_state.lambda_est = conf_now->foc_motor_flux_linkage;
 }
-
-/*
-float band_pass_filter(float input,float centerFreq,  float bandwidth, float sampleRate, motor_all_state_t *motor){
-    // Initialize coefficients on first call
-
-    if (motor->bp_firstCall) {
-        double omega = 2.0 * M_PI * (double)(centerFreq / sampleRate);
-        double alpha = sin(omega) * sinh(log(2.0) / (double)(2.0 * bandwidth) * omega / sin(omega));
-        double cosw = cos(omega);
-        
-        // Calculate normalized coefficients
-        motor->bp_b0 = alpha / (1.0 + alpha);
-        motor->bp_b1 = 0.0;
-        motor->bp_b2 = -alpha / (1.0 + alpha);
-        
-        motor->bp_a1 = -2.0 * cosw / (1.0 + alpha);
-        motor->bp_a2 = (1.0 - alpha) / (1.0 + alpha);
-        
-        // Initialize state variables
-        motor->bp_x1 = 0.0;
-        motor->bp_x2 = 0.0;
-        motor->bp_y1 = 0.0;
-        motor->bp_y2 = 0.0;
-        
-        motor->bp_firstCall = 0;  // Clear first call flag
-    }
-    
-    // Compute output
-    double output_filter = motor->bp_b0 * (double)input + motor->bp_b1 * (motor->bp_x1) +  motor->bp_b2 * (motor->bp_x2) - motor->bp_a1 * (motor->bp_y1) - motor->bp_a2 * (motor->bp_y2);
-  
-    // Update state
-    motor->bp_x2 = motor->bp_x1;
-    motor->bp_x1 = (double)input;
-    motor->bp_y2 = motor->bp_y1;
-    motor->bp_y1 = output;
-    
-    return (float)output;
-}*/

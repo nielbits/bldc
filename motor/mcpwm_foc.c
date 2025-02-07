@@ -365,7 +365,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_last = 1.0;
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
-	m_motor_1.bp_firstCall=1;
+	m_motor_1.hp_firstCall=1;
 
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
