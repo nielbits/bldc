@@ -504,7 +504,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		}
 		utils_truncate_number(&motor->m_speed_pid_set_rpm, conf_now->l_min_erpm, conf_now->l_max_erpm);
 	}
-	
+
 	float rpm = 0.0;
 	switch (conf_now->s_pid_speed_source) {
 	case S_PID_SPEED_SRC_PLL:
@@ -528,10 +528,18 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		return;
 	}
 
-	//--------------------------------------------------------------------
-	//Feed forward logic F_res= f(incline, speed, other parameters)
-	//next update will be a predictor considering the last 10 values? possibly NN or better observer
+	// Compute parameters
+	p_term = error * conf_now->s_pid_kp * (1.0 / 20.0);
+	d_term = (error - motor->m_speed_prev_error) * (conf_now->s_pid_kd / dt) * (1.0 / 20.0);
 
+	// Filter D
+	UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
+	d_term = motor->m_speed_d_filter;
+
+	// Store previous error
+	motor->m_speed_prev_error = error;
+ 	
+	// calculations needed for 
 	float air_ro=1.2; //air density
 	float mu_rr= 0.0015; //rolling friction
 	float rider_weight= 85.0; 
@@ -542,113 +550,39 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float c_wl= 1.0;//air resistance coefficient
 	float c_wb=0.0015;
 	float slope=0; //inclination angle, degrees
-	
 	float wheel_radius= 0.3556; //bike wheel radius;
-	float crank_diam=200.0;
 	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
-	float mech_gearing=(60.0*crank_diam)/(25.0*20.0);//mechanical gearing from motor to crank = 24 @ 2.1.2025
+	float mech_gearing=(240/90);//mechanical gearing from motor to crank = 240/90
 	float gearing = mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
-	float speed			= -(float)rpm/60*3.141592*2*wheel_radius/gearing;//speed in m/s
+	float speed			= (float)rpm/(motor->m_conf->si_motor_poles/2)/60*3.141592*2*wheel_radius/gearing;//speed in m/s
     float F_air       = speed*speed*air_ro*area*c_wl;
     float F_roll      = 0.0000;//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
 	float r_bearings=0.014;
 	float k_v_bw= 0.00001;
-	float filter_constant = exp(-2.0 * M_PI * 1.0 * dt);
-	float alpha =0.00009999;
-
-    float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed
-	 
+    float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed 
 	float F_bearings= (bike_weight+rider_weight)*c_wb*9.81*(speed/wheel_radius)/r_bearings*k_v_bw;
 	//F_res calculation
 
 	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
 
 
-		// i_res calculation
+	// i_res calculation
 
 	float T_res=F_combine*wheel_radius/gearing;
-	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*motor->m_conf->si_motor_poles/2;
+	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2;
 	float i_res= T_res/kT;
+	float i_res_out= i_res/(conf_now->lo_current_max * conf_now->l_current_max_scale);
+	motor->c_v_q_ff= i_res_out*motor->m_res_est;
 
-	//UTILS_DC_HP(motor->i_res_filter,i_res ,filter_constant);
-	UTILS_DC_REMOVE(motor->i_res_filter,i_res,alpha);
-	//float i_res_filter=band_pass_filter(i_res,1.5,4.0,dt,motor);
-	double input = (double)i_res;
-
-	//float sampleRate=1/dt;//=0.001 in config;
-	float fs = 2500.0f;   // Sampling frequency
-	float fc = 0.2f;      // Cutoff frequency (1 Hz)
-
- if (motor->hp_firstCall) {
-        double fs = 2500.0;
-        double fc = 0.5;
-        double omega0 = 2.0 * M_PI * fc;
-        double Q = 1.0 / sqrt(2.0);
-        
-        double tan_term = tan(omega0 / (2.0 * fs));
-        double norm_factor = 1.0 + tan_term/Q + tan_term*tan_term;
-        
-        motor->hp_b0 = 1.0 / norm_factor;
-        motor->hp_b1 = -2.0 * motor->hp_b0;
-        motor->hp_b2 = motor->hp_b0;
-        
-        motor->hp_a1 = 2.0 * (tan_term*tan_term - 1.0) / norm_factor;
-        motor->hp_a2 = (1.0 - tan_term/Q + tan_term*tan_term) / norm_factor;
-        
-        motor->hp_x1 = motor->hp_x2 = 0.0;
-        motor->hp_y1 = motor->hp_y2 = 0.0;
-        motor->hp_firstCall = 0;
-    }
-    
-    double output_filter = motor->hp_b0 * input + 
-                    motor->hp_b1 * motor->hp_x1 + 
-                    motor->hp_b2 * motor->hp_x2 - 
-                    motor->hp_a1 * motor->hp_y1 - 
-                    motor->hp_a2 * motor->hp_y2;
-    
-    motor->hp_x2 = motor->hp_x1;
-    motor->hp_x1 = input;
-    motor->hp_y2 = motor->hp_y1;
-    motor->hp_y1 = output_filter;
-    
-	
 	// Other motor variables remain unchanged
-		motor->d_speed = dt;
-		motor->d_f_air = F_air;
-		motor->d_f_combine = F_combine;
-		motor->d_f_bearings = F_bearings;
-	// Assign filtered value
-		motor->d_i_res=4*output_filter;
-
-
-	/*todo, use these variables to configure dynamically
-	//conf->si_gear_ratio = buffer_get_float32_auto(buffer, &ind);
-	//conf->si_wheel_diameter = buffer_get_float32_auto(buffer, &ind);
-	//conf->foc_motor_l = MCCONF_FOC_MOTOR_L;
-	//conf->foc_motor_ld_lq_diff = MCCONF_FOC_MOTOR_LD_LQ_DIFF;
-	//conf->foc_motor_r = MCCONF_FOC_MOTOR_R;
-	//conf->foc_motor_flux_linkage = MCCONF_FOC_MOTOR_FLUX_LINKAGE;
-	*/
-
-
-	//---------------------------------------------------------------------
-
-	// Compute parameters
-	p_term = error * conf_now->s_pid_kp * (1.0 / 20.0);
-	d_term = (error - motor->m_speed_prev_error) * (conf_now->s_pid_kd / dt) * (1.0 / 20.0);
-
-	// Filter D
-	UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
-	d_term = motor->m_speed_d_filter;
-	
-	// Store previous error
-	motor->m_speed_prev_error = error;
-
+	motor->d_speed = speed;
+	motor->d_f_air = F_air;
+	motor->d_f_combine = F_combine;
+	motor->d_f_bearings = F_bearings;
 	// Calculate output
-	output_filter= (output_filter/((float)conf_now->lo_current_max *(float)conf_now->l_current_max_scale));
-	float output = p_term + motor->m_speed_i_term + d_term - 4*output_filter;
+	//float output = p_term + motor->m_speed_i_term + d_term;
+	float output = p_term + motor->m_speed_i_term + d_term +i_res_out;
 	utils_truncate_number_abs(&output, 1.0);
-
 
 	// Integrator windup protection
 	motor->m_speed_i_term += error * conf_now->s_pid_ki * dt * (1.0 / 20.0);
@@ -671,6 +605,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
 }
+
 
 float foc_correct_encoder(float obs_angle, float enc_angle, float speed,
 							 float sl_erpm, motor_all_state_t *motor) {

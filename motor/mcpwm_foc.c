@@ -47,12 +47,16 @@ static volatile bool m_dccal_done = false;
 static volatile float m_last_adc_isr_duration;
 static volatile bool m_init_done = false;
 static volatile motor_all_state_t m_motor_1;
+
+
+
 #ifdef HW_HAS_DUAL_MOTORS
 static volatile motor_all_state_t m_motor_2;
 #endif
 static volatile int m_isr_motor = 0;
 
 // Private functions
+static void init_lead_controllers(motor_all_state_t *motor, float T1_c, float T2_c, float T1_s, float T2_s, float Ts);
 static void control_current(motor_all_state_t *motor, float dt);
 static void update_valpha_vbeta(motor_all_state_t *motor, float mod_alpha, float mod_beta);
 static void stop_pwm_hw(motor_all_state_t *motor);
@@ -365,7 +369,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_last = 1.0;
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
-	m_motor_1.hp_firstCall=1;
+	//m_motor_1.hp_firstCall=1;
 
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
@@ -1171,7 +1175,7 @@ mc_state mcpwm_foc_get_state_motor(bool is_second_motor) {
 float mcpwm_foc_get_rpm(void) {
 	return RADPS2RPM_f(get_motor_now()->m_pll_speed);
 	//	return get_motor_now()->m_speed_est_fast * RADPS2RPM_f;
-}
+}	
 
 /**
  * Same as above, but uses the fast and noisier estimator.
@@ -4392,6 +4396,8 @@ static void control_current(motor_all_state_t *motor, float dt) {
 	state_m->vd -= dec_vd; //Negative sign as in the PMSM equations
 	state_m->vq += dec_vq + dec_bemf;
 
+	state_m->vq += motor->c_v_q_ff;
+
 	// Calculate the max length of the voltage space vector without overmodulation.
 	// Is simply 1/sqrt(3) * v_bus. See https://microchipdeveloper.com/mct5001:start. Adds margin with max_duty.
 	float max_v_mag = ONE_BY_SQRT3 * max_duty * state_m->v_bus;
@@ -4736,6 +4742,7 @@ static void control_current(motor_all_state_t *motor, float dt) {
 		} else {
 			if (motor->m_pwm_mode != FOC_PWM_ENABLED) {
 				start_pwm_hw(motor);
+				init_lead_controllers(motor,0.53,0.053,0.53,0.053,dt);// cutoff frequency = 3Hz, 0.796 for 2 Hz	
 			}
 		}
 	}
@@ -5140,4 +5147,38 @@ float mcpwm_foc_get_f_air(void){
 }
 float mcpwm_foc_get_f_combine(void){
 	return get_motor_now()->d_f_combine;
+}
+
+
+float calculate_crossover_freq(float T1, float T2) {
+    return 1.0f / (2.0f * M_PI * sqrtf(T1 * T2));
+}
+
+static void init_lead_controllers(motor_all_state_t *motor, float T1_c, float T2_c, float T1_s, float T2_s, float Ts) {
+
+
+float Ts_inv = 2.0f / Ts;
+
+// Controller for current loop
+motor->c_lead_a0 = (Ts_inv + 1.0f / T1_c) / (Ts_inv + 1.0f / T2_c);
+motor->c_lead_a1 = (1.0f / T2_c - 1.0f / T1_c) / (Ts_inv + 1.0f / T2_c);
+motor->c_lead_b0 = Ts_inv / (Ts_inv + 1.0f / T2_c);
+motor->c_lead_b1 = -motor->c_lead_b0;
+motor->c_lead_prev_input = 0.0f;
+motor->c_lead_prev_output = 0.0f;
+
+// Controller for speed loop
+motor->s_lead_a0 = (Ts_inv + 1.0f / T1_s) / (Ts_inv + 1.0f / T2_s);
+motor->s_lead_a1 = (1.0f / T2_s - 1.0f / T1_s) / (Ts_inv + 1.0f / T2_s);
+motor->s_lead_b0 = Ts_inv / (Ts_inv + 1.0f / T2_s);
+motor->s_lead_b1 = -motor->s_lead_b0;
+motor->s_lead_prev_input = 0.0f;
+motor->s_lead_prev_output = 0.0f;
+
+// Optional: calculate and log the crossover frequencies
+float fc_c = calculate_crossover_freq(T1_c, T2_c);
+float fc_s = calculate_crossover_freq(T1_s, T2_s);
+
+printf("Current loop lead crossover freq ≈ %.2f Hz\n", fc_c);
+printf("Speed loop lead crossover freq ≈ %.2f Hz\n", fc_s);
 }

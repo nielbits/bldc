@@ -250,26 +250,30 @@ typedef struct {
 
 	float d_i_res;
 
+
 	//filtered speed error and resp. parameters
 
 	float gear_ratio_bike;
 
+	//feedforward control
 
-    // Band_pass-filter coefficients - should be preserved between calls
-    double hp_b0;
-	double hp_b1;
-	double hp_b2;
-    double hp_a1;
-	double hp_a2;
-    // State variables - should be preserved between calls
-    double hp_x1;
-	double hp_x2;
-    double hp_y1;
-	double hp_y2;
-    // First call flag - should be initialized to 1
-    int hp_firstCall;
+	float c_v_q_ff;
 
-	float i_res_filter;
+	//values to be used for lead compensator controllers
+
+	float c_lead_a0;
+	float c_lead_a1;
+	float c_lead_b0;
+	float c_lead_b1;
+	float c_lead_prev_input;
+	float c_lead_prev_output;
+
+	float s_lead_a0;
+	float s_lead_a1;
+	float s_lead_b0;
+	float s_lead_b1;
+	float s_lead_prev_input;
+	float s_lead_prev_output;
 
 } motor_all_state_t;
 
