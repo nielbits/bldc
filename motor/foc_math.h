@@ -275,6 +275,13 @@ typedef struct {
 	float s_lead_prev_input;
 	float s_lead_prev_output;
 
+	//trapezoidal integration
+	float last_accel;
+	float integrated_value;
+
+	float accel_ist;
+	//soll speed (model speed)
+	float d_speed_soll;
 } motor_all_state_t;
 
 

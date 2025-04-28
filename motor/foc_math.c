@@ -519,7 +519,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	}
 
 	float error = motor->m_speed_pid_set_rpm - rpm;
-
+	
 	// Too low RPM set. Reset state, release motor and return.
 	if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
 		motor->m_speed_i_term = 0.0;
@@ -539,39 +539,55 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// Store previous error
 	motor->m_speed_prev_error = error;
  	
-	// calculations needed for 
+	//fixed parameters or very slowly changing parameters, calculated once at the initialization
 	float air_ro=1.2; //air density
-	float mu_rr= 0.0015; //rolling friction
-	float rider_weight= 85.0; 
-	float bike_weight= 8.0;
-	float biker_height=1.8;
-	float k = 0.2; //coefficient for sectional area
-	float area= biker_height*k*k;
-	float c_wl= 1.0;//air resistance coefficient
-	float c_wb=0.0015;
-	float slope=0; //inclination angle, degrees
+	float mu_rr= 0.0025; //rolling friction
+	float weight= 85.0+8.0; 
+	float As= 0.509; //section area
+	float c_air= 0.76; //drag coefficient
+	float c_bw=0.0015;
+	float c_wl= 0.076;//air resistance coefficient
 	float wheel_radius= 0.3556; //bike wheel radius;
-	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
 	float mech_gearing=(240/90);//mechanical gearing from motor to crank = 240/90
-	float gearing = mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
-	float speed			= (float)rpm/(motor->m_conf->si_motor_poles/2)/60*3.141592*2*wheel_radius/gearing;//speed in m/s
-    float F_air       = speed*speed*air_ro*area*c_wl;
-    float F_roll      = 0.0000;//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
 	float r_bearings=0.014;
 	float k_v_bw= 0.00001;
+	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2;
+
+	//possibly changeable parameters
+	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
+	float incline=0; //inclination angle, degrees,slope
+	float gearing = mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
+	float slope = incline * 3.141592 / 180.0; //inclination angle, radians
+
+	//online updated parameters(cyclewise calculated)
+	float speed			= motor->m_speed_est_fast*wheel_radius/(motor->m_conf->si_motor_poles/2)/gearing/1.36363636;//speed in m/s
+    float F_air       = speed*speed*air_ro*c_wl*As;
+    float F_roll      = weight* 9.81* cos(slope);//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
+	
     float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed 
-	float F_bearings= (bike_weight+rider_weight)*c_wb*9.81*(speed/wheel_radius)/r_bearings*k_v_bw;
+	float F_bearings= (weight)*c_bw*9.81*(speed/wheel_radius)/r_bearings*k_v_bw* cos(slope);
 	//F_res calculation
 
 	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
+	float F_f_comp= (rpm/(motor->m_conf->si_motor_poles/2)*0.002188+0.784982*kT/wheel_radius);
+	
+	motor->accel_ist=(F_combine+F_f_comp-(motor->m_motor_state.iq*kT)/wheel_radius)/weight*gearing; //acceleration in m/s^2, needs to add friction curve force
+	
 
+	motor->integrated_value += 0.5 * (motor->last_accel + motor->accel_ist)*dt;
+	motor->last_accel = motor->accel_ist;
+	
+	
+	motor->d_speed_soll= motor->integrated_value;
+	
 
 	// i_res calculation
 
 	float T_res=F_combine*wheel_radius/gearing;
-	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2;
-	float i_res= T_res/kT;
+	float i_res= -T_res/kT;
 	float i_res_out= i_res/(conf_now->lo_current_max * conf_now->l_current_max_scale);
+	
+
 	motor->c_v_q_ff= i_res_out*motor->m_res_est;
 
 	// Other motor variables remain unchanged
@@ -579,7 +595,10 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->d_f_air = F_air;
 	motor->d_f_combine = F_combine;
 	motor->d_f_bearings = F_bearings;
+	motor->d_i_res= i_res;
+
 	// Calculate output
+
 	//float output = p_term + motor->m_speed_i_term + d_term;
 	float output = p_term + motor->m_speed_i_term + d_term +i_res_out;
 	utils_truncate_number_abs(&output, 1.0);
