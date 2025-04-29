@@ -540,38 +540,27 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->m_speed_prev_error = error;
  	
 	//fixed parameters or very slowly changing parameters, calculated once at the initialization
-	float air_ro=1.2; //air density
-	float mu_rr= 0.0025; //rolling friction
-	float weight= 85.0+8.0; 
-	float As= 0.509; //section area
-	float c_air= 0.76; //drag coefficient
-	float c_bw=0.0015;
-	float c_wl= 0.076;//air resistance coefficient
-	float wheel_radius= 0.3556; //bike wheel radius;
-	float mech_gearing=(240/90);//mechanical gearing from motor to crank = 240/90
-	float r_bearings=0.014;
-	float k_v_bw= 0.00001;
-	float kT= 1.5 *(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2;
+
 
 	//possibly changeable parameters
 	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
-	float incline=0; //inclination angle, degrees,slope
-	float gearing = mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
+	float incline=0.000; //inclination angle, degrees,slope
+	float gearing = motor->p_mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
 	float slope = incline * 3.141592 / 180.0; //inclination angle, radians
 
 	//online updated parameters(cyclewise calculated)
-	float speed			= motor->m_speed_est_fast*wheel_radius/(motor->m_conf->si_motor_poles/2)/gearing/1.36363636;//speed in m/s
-    float F_air       = speed*speed*air_ro*c_wl*As;
-    float F_roll      = weight* 9.81* cos(slope);//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
+	float speed			= motor->m_speed_est_fast*motor->p_wheel_radius/(motor->m_conf->si_motor_poles/2)/gearing/1.36363636;//speed in m/s
+    float F_air       = speed*speed*motor->p_air_ro*motor->p_c_wl*motor->p_As;
+    float F_roll      = motor->p_weight* 9.81* cos(slope);//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
 	
     float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed 
-	float F_bearings= (weight)*c_bw*9.81*(speed/wheel_radius)/r_bearings*k_v_bw* cos(slope);
+	float F_bearings= (motor->p_weight)*motor->p_c_bw*9.81*(speed/motor->p_wheel_radius)/motor->p_r_bearings*motor->p_k_v_bw* cos(slope);
 	//F_res calculation
 
 	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
-	float F_f_comp= (rpm/(motor->m_conf->si_motor_poles/2)*0.002188+0.784982*kT/wheel_radius);
+	float F_f_comp= (rpm/(motor->m_conf->si_motor_poles/2)*0.002188+0.784982*motor->p_kT/motor->p_wheel_radius);
 	
-	motor->accel_ist=(F_combine+F_f_comp-(motor->m_motor_state.iq*kT)/wheel_radius)/weight*gearing; //acceleration in m/s^2, needs to add friction curve force
+	motor->accel_ist=(F_combine+F_f_comp-(motor->m_motor_state.iq*motor->p_kT)/motor->p_wheel_radius)/motor->p_weight*gearing; //acceleration in m/s^2, needs to add friction curve force
 	
 
 	motor->integrated_value += 0.5 * (motor->last_accel + motor->accel_ist)*dt;
@@ -583,8 +572,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// i_res calculation
 
-	float T_res=F_combine*wheel_radius/gearing;
-	float i_res= -T_res/kT;
+	float T_res=F_combine*motor->p_wheel_radius/gearing;
+	float i_res= -T_res/0.000065867;//motor->p_kT;
 	float i_res_out= i_res/(conf_now->lo_current_max * conf_now->l_current_max_scale);
 	
 
@@ -600,7 +589,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// Calculate output
 
 	//float output = p_term + motor->m_speed_i_term + d_term;
-	float output = p_term + motor->m_speed_i_term + d_term +i_res_out;
+	float output = p_term + motor->m_speed_i_term + d_term;// +i_res_out;
 	utils_truncate_number_abs(&output, 1.0);
 
 	// Integrator windup protection

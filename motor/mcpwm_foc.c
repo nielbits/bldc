@@ -46,9 +46,26 @@
 static volatile bool m_dccal_done = false;
 static volatile float m_last_adc_isr_duration;
 static volatile bool m_init_done = false;
-static volatile motor_all_state_t m_motor_1;
+static volatile motor_all_state_t m_motor_1 = {
 
-m_motor_1->last_accel = 0.0f;
+	.last_accel = 0.0f,
+	.integrated_value = 0.0f,
+	
+	//parameter initialization
+	.p_air_ro=1.2, //air density
+	.p_c_rr= 0.0025, //rolling friction
+	.p_weight= 85.0+8.0, 
+	.p_As= 0.509, //section area
+	.p_c_air= 0.76, //drag coefficient
+	.p_c_bw=0.0015,
+	.p_c_wl= 0.076,//air resistance coefficient
+	.p_wheel_radius= 0.3556, //bike wheel radius;
+	.p_mech_gearing=(240/90),//mechanical gearing from motor to crank = 240/90
+	.p_r_bearings=0.014,
+	.p_k_v_bw= 0.00001,
+	//neeeds to be corrected
+	.p_kT= 1.5*0.001913 *23.0//*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2.0
+};
 
 #ifdef HW_HAS_DUAL_MOTORS
 static volatile motor_all_state_t m_motor_2;
@@ -1132,6 +1149,14 @@ float mcpwm_foc_get_f_roll(){
 	return motor->d_f_roll;
 	
 }
+
+float mcpwm_foc_get_model_speed(void){
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor->p_kT;
+	
+	//return motor->d_speed_soll;
+}
+
 
 float mcpwm_foc_get_tot_current_motor(bool is_second_motor) {
 	volatile motor_all_state_t *motor = M_MOTOR(is_second_motor);
@@ -5182,3 +5207,4 @@ float fc_s = calculate_crossover_freq(T1_s, T2_s);
 printf("Current loop lead crossover freq ≈ %.2f Hz\n", fc_c);
 printf("Speed loop lead crossover freq ≈ %.2f Hz\n", fc_s);
 }
+

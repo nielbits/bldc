@@ -282,6 +282,20 @@ typedef struct {
 	float accel_ist;
 	//soll speed (model speed)
 	float d_speed_soll;
+
+	//parameters fixed
+	float p_air_ro; //air density
+	float p_c_rr; //rolling friction
+	float p_weight; 
+	float p_As; //section area
+	float p_c_air; //drag coefficient
+	float p_c_bw;
+	float p_c_wl;//air resistance coefficient
+	float p_wheel_radius; //bike wheel radius;
+	float p_mech_gearing;//mechanical gearing from motor to crank = 240/90
+	float p_r_bearings;
+	float p_k_v_bw;
+	float p_kT;
 } motor_all_state_t;
 
 
