@@ -276,13 +276,13 @@ typedef struct {
 	float s_lead_prev_output;
 
 	//trapezoidal integration
-	float last_accel;
-	float integrated_value;
+	int_fast64_t last_accel;
+	int_fast64_t integrated_value;
 
-	float accel_ist;
+	int_fast64_t accel_ist;
 	//soll speed (model speed)
 	float d_speed_soll;
-
+	float d_f_motor;
 	//parameters fixed
 	float p_air_ro; //air density
 	float p_c_rr; //rolling friction
@@ -296,6 +296,7 @@ typedef struct {
 	float p_r_bearings;
 	float p_k_v_bw;
 	float p_kT;
+
 } motor_all_state_t;
 
 

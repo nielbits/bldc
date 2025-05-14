@@ -46,26 +46,7 @@
 static volatile bool m_dccal_done = false;
 static volatile float m_last_adc_isr_duration;
 static volatile bool m_init_done = false;
-static volatile motor_all_state_t m_motor_1 = {
-
-	.last_accel = 0.0f,
-	.integrated_value = 0.0f,
-	
-	//parameter initialization
-	.p_air_ro=1.2, //air density
-	.p_c_rr= 0.0025, //rolling friction
-	.p_weight= 85.0+8.0, 
-	.p_As= 0.509, //section area
-	.p_c_air= 0.76, //drag coefficient
-	.p_c_bw=0.0015,
-	.p_c_wl= 0.076,//air resistance coefficient
-	.p_wheel_radius= 0.3556, //bike wheel radius;
-	.p_mech_gearing=(240/90),//mechanical gearing from motor to crank = 240/90
-	.p_r_bearings=0.014,
-	.p_k_v_bw= 0.00001,
-	//neeeds to be corrected
-	.p_kT= 1.5*0.001913 *23.0//*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2.0
-};
+static volatile motor_all_state_t m_motor_1; 
 
 #ifdef HW_HAS_DUAL_MOTORS
 static volatile motor_all_state_t m_motor_2;
@@ -387,7 +368,24 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
 	//m_motor_1.hp_firstCall=1;
-
+	//HERE HERE HERE
+	m_motor_1.last_accel = 0.0f;
+	m_motor_1.integrated_value = 0.0f;
+	
+	//parameter initialization
+	m_motor_1.p_air_ro=1.2f; //air density
+	m_motor_1.p_c_rr= 0.0025f; //rolling friction
+	m_motor_1.p_weight= 85.0f+8.1f;
+	m_motor_1.p_As= 0.509f; //section area
+	m_motor_1.p_c_air= 0.76f; //drag coefficient
+	m_motor_1.p_c_bw=0.0015f;
+	m_motor_1.p_c_wl= 0.076f;//air resistance coefficient
+	m_motor_1.p_wheel_radius= 0.3556f; //bike wheel radius;
+	m_motor_1.p_mech_gearing=(240.0f/90.0f);//mechanical gearing from motor to crank = 240/90
+	m_motor_1.p_r_bearings=0.014f;
+	m_motor_1.p_k_v_bw= 0.00001f;
+	//neeeds to be corrected
+	m_motor_1.p_kT= (float)(1.5f*0.001913f *23.0f);//*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2.0
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
@@ -1139,20 +1137,22 @@ float mcpwm_foc_get_gear_ratio() {
 
 float mcpwm_foc_get_f_bearings(){
 	volatile motor_all_state_t *motor = get_motor_now();
-
-	return motor->d_f_bearings;
+	
+	//return motor->d_f_bearings;
+	return motor->accel_ist;
 
 
 }
 float mcpwm_foc_get_f_roll(){
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor->d_f_roll;
+	//return motor->d_f_roll;
+	return motor->d_speed_soll;
 	
 }
 
 float mcpwm_foc_get_model_speed(void){
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor->p_kT;
+	return motor->d_speed_soll;
 	
 	//return motor->d_speed_soll;
 }

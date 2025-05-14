@@ -519,7 +519,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	}
 
 	float error = motor->m_speed_pid_set_rpm - rpm;
-	
+
 	// Too low RPM set. Reset state, release motor and return.
 	if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
 		motor->m_speed_i_term = 0.0;
@@ -538,8 +538,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// Store previous error
 	motor->m_speed_prev_error = error;
- 	
-	//fixed parameters or very slowly changing parameters, calculated once at the initialization
+//fixed parameters or very slowly changing parameters, calculated once at the initialization
 
 
 	//possibly changeable parameters
@@ -551,33 +550,42 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	//online updated parameters(cyclewise calculated)
 	float speed			= motor->m_speed_est_fast*motor->p_wheel_radius/(motor->m_conf->si_motor_poles/2)/gearing/1.36363636;//speed in m/s
     float F_air       = speed*speed*motor->p_air_ro*motor->p_c_wl*motor->p_As;
-    float F_roll      = motor->p_weight* 9.81* cos(slope);//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
+    float F_roll      =0.00;// motor->p_weight* 9.81* cos(slope);//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
 	
     float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed 
 	float F_bearings= (motor->p_weight)*motor->p_c_bw*9.81*(speed/motor->p_wheel_radius)/motor->p_r_bearings*motor->p_k_v_bw* cos(slope);
 	//F_res calculation
 
 	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
-	float F_f_comp= (rpm/(motor->m_conf->si_motor_poles/2)*0.002188+0.784982*motor->p_kT/motor->p_wheel_radius);
-	
-	motor->accel_ist=(F_combine+F_f_comp-(motor->m_motor_state.iq*motor->p_kT)/motor->p_wheel_radius)/motor->p_weight*gearing; //acceleration in m/s^2, needs to add friction curve force
+	float F_f_comp= 0;//(rpm/(motor->m_conf->si_motor_poles/2)*0.002188+0.784982*motor->p_kT/motor->p_wheel_radius);
+	motor->d_f_motor= (motor->m_motor_state.iq*motor->p_kT)/motor->p_wheel_radius*motor->p_mech_gearing;
+
+
+	#define SCALE_INT 1000000.0f
+
+	motor->accel_ist=((-motor->d_f_motor-F_combine+F_f_comp)*gearing*0.02075)*SCALE_INT;//weight inverse, since division is not working here, gotta move it somewhere
+	//motor->p_weight*gearing; //acceleration in m/s^2, needs to add friction curve force
 	
 
-	motor->integrated_value += 0.5 * (motor->last_accel + motor->accel_ist)*dt;
+	motor->integrated_value = (int_fast64_t)(((motor->last_accel + motor->accel_ist)*(dt*SCALE_INT))/(SCALE_INT*2)) + motor->integrated_value;
+	//if (motor->integrated_value<0.0f){
+	//	motor->integrated_value=0.0f;
+	//}
+
+
 	motor->last_accel = motor->accel_ist;
-	
-	
-	motor->d_speed_soll= motor->integrated_value;
-	
+	motor->d_speed_soll= (float)(motor->integrated_value/SCALE_INT);
+
+	float weight_inv= 1.0f/(motor->p_weight);
 
 	// i_res calculation
 
 	float T_res=F_combine*motor->p_wheel_radius/gearing;
-	float i_res= -T_res/0.000065867;//motor->p_kT;
-	float i_res_out= i_res/(conf_now->lo_current_max * conf_now->l_current_max_scale);
+	float i_res= -T_res/motor->p_kT;//motor->p_kT;
 	
-
-	motor->c_v_q_ff= i_res_out*motor->m_res_est;
+	//float lq= motor->m_conf->foc_motor_l+motor->m_conf->foc_motor_ld_lq_diff/2.0;
+	float i_res_out= i_res/(conf_now->lo_current_max * conf_now->l_current_max_scale);
+	motor->c_v_q_ff= i_res_out*motor->m_res_est; //+ motor->m_speed_est_fast*lq*i_res_out; 
 
 	// Other motor variables remain unchanged
 	motor->d_speed = speed;
@@ -585,11 +593,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->d_f_combine = F_combine;
 	motor->d_f_bearings = F_bearings;
 	motor->d_i_res= i_res;
-
 	// Calculate output
-
-	//float output = p_term + motor->m_speed_i_term + d_term;
-	float output = p_term + motor->m_speed_i_term + d_term;// +i_res_out;
+	float output = p_term + motor->m_speed_i_term + d_term;
 	utils_truncate_number_abs(&output, 1.0);
 
 	// Integrator windup protection
@@ -613,6 +618,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
 }
+
 
 
 float foc_correct_encoder(float obs_angle, float enc_angle, float speed,
