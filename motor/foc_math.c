@@ -593,8 +593,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	int_fast64_t Tdist_raw = (accel_scaled * J_scaled) / gearing_sq_scaled - Te_scaled;
 
 	// --- Step 3: Observer update
-	int_fast64_t error = Tdist_raw - motor->tp_observed_fp;
-	int_fast64_t delta = (error * (int_fast64_t)(dt * SCALE_INT)) / SCALE_INT_I64;
+	int_fast64_t error_tp = Tdist_raw - motor->tp_observed_fp;
+	int_fast64_t delta = (error_tp * (int_fast64_t)(dt * SCALE_INT)) / SCALE_INT_I64;
 	delta = (delta * OBS_GAIN_FP) / SCALE_INT_I64;
 	motor->tp_observed_fp += delta;
 
