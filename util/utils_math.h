@@ -106,6 +106,7 @@ void utils_rotate_vector3(float *input, float *rotation, float *output, bool rev
 
 #define UTILS_DC_HP(value, sample, filter_constant) (value = (filter_constant) * ((value) + (sample) - 2 * (value)))
 
+#define UTILS_LP_FAST_I64(prev_ptr, sample, alpha) (*(prev_ptr) = ((*(prev_ptr)) * (alpha) + (sample) * (100 - (alpha))) / 100)
 
 #define UTILS_DC_REMOVE(value, sample, alpha) (value = (alpha) * ((value) - (sample)))
 
