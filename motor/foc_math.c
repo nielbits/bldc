@@ -572,10 +572,19 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	#define SCALE_INT 100000000.0f   // Float version for scaling
 	#define SCALE_INT_I64 100000000LL // Integer version for math
-	#define OBS_GAIN_FP 50000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
+	#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 50 scaled to 1e8)
 
 
 	#define SCALE_INT 100000000.0f
+
+
+
+	int_fast64_t omega_now_fp = (int_fast64_t)(motor->m_speed_est_fast * SCALE_INT);
+	int_fast64_t omega_diff_fp = (omega_now_fp - motor->m_motor_rpm_previous_rad_fp);
+	motor->m_motor_rpm_previous_rad_fp = omega_now_fp;
+
+	int_fast64_t domega_dt_scaled = (omega_diff_fp * SCALE_INT_I64) / (int_fast64_t)(dt * SCALE_INT);  // chain scale
+	UTILS_LP_FAST_I64(&motor->m_motor_rads_filtered_diff_fp, domega_dt_scaled, 7);
 
 	motor->te_calculated=motor->m_motor_state.iq*motor->p_kT+(motor->m_motor_state.iq*motor->m_motor_state.id)*(motor->p_ld-motor->p_lq);
 	motor->d_f_motor= (motor->te_calculated)/motor->p_wheel_radius*motor->p_mech_gearing;
