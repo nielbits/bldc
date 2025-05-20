@@ -386,6 +386,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_k_v_bw= 0.00001f;
 	//neeeds to be corrected
 	m_motor_1.p_kT= (float)(1.5f*0.001913f *23.0f);//*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2.0
+	m_motor_1.p_J= 18.2f; //moment of inertia
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
@@ -1138,15 +1139,15 @@ float mcpwm_foc_get_gear_ratio() {
 float mcpwm_foc_get_f_bearings(){
 	volatile motor_all_state_t *motor = get_motor_now();
 	
-	//return motor->d_f_bearings;
-	return motor->accel_ist;
+	//return motor->d_f_bearings;	
+	return motor->tp_observed;
 
 
 }
 float mcpwm_foc_get_f_roll(){
 	volatile motor_all_state_t *motor = get_motor_now();
 	//return motor->d_f_roll;
-	return motor->d_speed_soll;
+	return motor->te_calculated;
 	
 }
 

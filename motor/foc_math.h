@@ -275,11 +275,13 @@ typedef struct {
 	float s_lead_prev_input;
 	float s_lead_prev_output;
 
-	//trapezoidal integration
+	//trapezoidal integration and tp observer int
 	int_fast64_t last_accel;
 	int_fast64_t integrated_value;
 
 	int_fast64_t accel_ist;
+
+	int_fast64_t tp_observed_fp;  
 	//soll speed (model speed)
 	float d_speed_soll;
 	float d_f_motor;
@@ -296,7 +298,18 @@ typedef struct {
 	float p_r_bearings;
 	float p_k_v_bw;
 	float p_kT;
+	float p_J;
 
+
+	//TP observer calculations
+
+	float m_motor_rpm_previous;
+	float m_motor_rads_filtered_diff;
+	float tp_observed;
+	float te_calculated;
+
+
+	//t
 } motor_all_state_t;
 
 

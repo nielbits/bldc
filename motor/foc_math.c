@@ -538,7 +538,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// Store previous error
 	motor->m_speed_prev_error = error;
-//fixed parameters or very slowly changing parameters, calculated once at the initialization
+	//fixed parameters or very slowly changing parameters, calculated once at the initialization
 
 
 	//possibly changeable parameters
@@ -558,10 +558,49 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
 	float F_f_comp= 0;//(rpm/(motor->m_conf->si_motor_poles/2)*0.002188+0.784982*motor->p_kT/motor->p_wheel_radius);
-	motor->d_f_motor= (motor->m_motor_state.iq*motor->p_kT)/motor->p_wheel_radius*motor->p_mech_gearing;
 
 
-	#define SCALE_INT 1000000.0f
+
+	//finish filtered derivative calculation
+
+
+
+
+	//calculate TP
+	
+	
+
+	#define SCALE_INT 100000000.0f   // Float version for scaling
+	#define SCALE_INT_I64 100000000LL // Integer version for math
+	#define OBS_GAIN_FP 50000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
+
+
+	#define SCALE_INT 100000000.0f
+
+	motor->te_calculated=motor->m_motor_state.iq*motor->p_kT+(motor->m_motor_state.iq*motor->m_motor_state.id)*(motor->p_ld-motor->p_lq);
+	motor->d_f_motor= (motor->te_calculated)/motor->p_wheel_radius*motor->p_mech_gearing;
+
+	
+	//calculate the filtered derivative of the rpm
+	// --- Step 1: Scale constants dynamically
+	int_fast64_t gearing_scaled = (int_fast64_t)(motor->p_mech_gearing * SCALE_INT);
+	int_fast64_t gearing_sq_scaled = (gearing_scaled * gearing_scaled) / SCALE_INT_I64;
+	int_fast64_t J_scaled = (int_fast64_t)(motor->p_J * SCALE_INT);
+
+	// --- Step 2: Compute raw external torque estimate
+	int_fast64_t accel_scaled = (int_fast64_t)(motor->m_motor_rads_filtered_diff / dt * SCALE_INT);
+	int_fast64_t Te_scaled = (int_fast64_t)(motor->te_calculated * SCALE_INT);
+	int_fast64_t Tdist_raw = (accel_scaled * J_scaled) / gearing_sq_scaled - Te_scaled;
+
+	// --- Step 3: Observer update
+	int_fast64_t error = Tdist_raw - motor->tp_observed_fp;
+	int_fast64_t delta = (error * (int_fast64_t)(dt * SCALE_INT)) / SCALE_INT_I64;
+	delta = (delta * OBS_GAIN_FP) / SCALE_INT_I64;
+	motor->tp_observed_fp += delta;
+
+	// --- Step 4: Convert to real value for logging/output
+	motor->tp_observed = (float)(motor->tp_observed_fp) / SCALE_INT;
+
 
 	motor->accel_ist=((-motor->d_f_motor-F_combine+F_f_comp)*gearing*0.02075)*SCALE_INT;//weight inverse, since division is not working here, gotta move it somewhere
 	//motor->p_weight*gearing; //acceleration in m/s^2, needs to add friction curve force
@@ -585,6 +624,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	
 	//float lq= motor->m_conf->foc_motor_l+motor->m_conf->foc_motor_ld_lq_diff/2.0;
 	float i_res_out= i_res/(conf_now->lo_current_max * conf_now->l_current_max_scale);
+
+
 	motor->c_v_q_ff= i_res_out*motor->m_res_est; //+ motor->m_speed_est_fast*lq*i_res_out; 
 
 	// Other motor variables remain unchanged
