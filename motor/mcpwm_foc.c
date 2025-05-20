@@ -388,6 +388,14 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_kT= (float)(1.5f*0.001913f *23.0f);//*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2.0
 	m_motor_1.p_J= 18.2f; //moment of inertia
 
+	m_motor_1.omega_kf = 0.0f;
+	m_motor_1.domega_kf = 0.0f;
+
+	m_motor_1.P_00 = 1.0f;
+	m_motor_1.P_01 = 0.0f;
+	m_motor_1.P_10 = 0.0f;
+	m_motor_1.P_11 = 1.0f;
+
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
 	init_audio_state(&m_motor_1.m_audio);

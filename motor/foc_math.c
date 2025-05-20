@@ -572,24 +572,67 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	#define SCALE_INT 100000000.0f   // Float version for scaling
 	#define SCALE_INT_I64 100000000LL // Integer version for math
-	#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 50 scaled to 1e8)
+	#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
 
 
 	#define SCALE_INT 100000000.0f
 
 
 
-	int_fast64_t omega_now_fp = (int_fast64_t)(motor->m_speed_est_fast * SCALE_INT);
+	int_fast64_t omega_now_fp = (int_fast64_t)(motor->m_pll_speed * SCALE_INT);
 	int_fast64_t omega_diff_fp = (omega_now_fp - motor->m_motor_rpm_previous_rad_fp);
 	motor->m_motor_rpm_previous_rad_fp = omega_now_fp;
 
 	int_fast64_t domega_dt_scaled = (omega_diff_fp * SCALE_INT_I64) / (int_fast64_t)(dt * SCALE_INT);  // chain scale
-	UTILS_LP_FAST_I64(&motor->m_motor_rads_filtered_diff_fp, domega_dt_scaled, 7);
+
+	UTILS_LP_FAST_I64(&motor->m_motor_rads_filtered_diff_fp, domega_dt_scaled, 50);
 
 	motor->te_calculated=motor->m_motor_state.iq*motor->p_kT+(motor->m_motor_state.iq*motor->m_motor_state.id)*(motor->p_ld-motor->p_lq);
 	motor->d_f_motor= (motor->te_calculated)/motor->p_wheel_radius*motor->p_mech_gearing;
 
-	
+
+	/////////////////////////////////////////////////////////////////
+	//KALMAN , KING OF THE FILTERS
+	// --- Kalman Filter Constants ---
+	//const float dt = 0.001f;            // Sample time [s]
+	const float Q_accel = 100.0f;       // Process noise on acceleration
+	const float R_meas = 0.05f * 0.05f; // Measurement noise (variance of omega)
+
+	// --- Prediction Step ---
+	motor->omega_kf += motor->domega_kf * dt;
+
+	// Update covariance matrix P = A*P*A^T + Q
+	float P00 = motor->P_00 + dt * (motor->P_10 + motor->P_01) + dt * dt * motor->P_11;
+	float P01 = motor->P_01 + dt * motor->P_11;
+	float P10 = motor->P_10 + dt * motor->P_11;
+	float P11 = motor->P_11 + Q_accel;
+
+	motor->P_00 = P00;
+	motor->P_01 = P01;
+	motor->P_10 = P10;
+	motor->P_11 = P11;
+
+	// --- Measurement Update ---
+	float z = motor->m_speed_est_fast;  // Measurement: raw omega
+	float y = z - motor->omega_kf;      // Innovation
+
+	float S = motor->P_00 + R_meas;
+	float K0 = motor->P_00 / S;
+	float K1 = motor->P_10 / S;
+
+	// Apply correction
+	motor->omega_kf += K0 * y;
+	motor->domega_kf += K1 * y;
+
+	// Update covariance
+	motor->P_00 -= K0 * motor->P_00;
+	motor->P_01 -= K0 * motor->P_01;
+	motor->P_10 -= K1 * motor->P_00;
+	motor->P_11 -= K1 * motor->P_01;
+
+
+	/////////////////////////////////////////////////////////////////////////
+
 	//calculate the filtered derivative of the rpm
 	// --- Step 1: Scale constants dynamically
 	int_fast64_t gearing_scaled = (int_fast64_t)(motor->p_mech_gearing * SCALE_INT);
@@ -597,7 +640,10 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	int_fast64_t J_scaled = (int_fast64_t)(motor->p_J * SCALE_INT);
 
 	// --- Step 2: Compute raw external torque estimate
-	int_fast64_t accel_scaled = (int_fast64_t)(motor->m_motor_rads_filtered_diff / dt * SCALE_INT);
+	//motor->accel_filtered_fp = (motor->accel_filtered_fp * 9 + motor->m_motor_rads_filtered_diff_fp) / 10;
+	//int_fast64_t accel_scaled = motor->m_motor_rads_filtered_diff_fp; //changed to kalman filter output.
+
+	int_fast64_t accel_scaled = motor->domega_kf;
 	int_fast64_t Te_scaled = (int_fast64_t)(motor->te_calculated * SCALE_INT);
 	int_fast64_t Tdist_raw = (accel_scaled * J_scaled) / gearing_sq_scaled - Te_scaled;
 

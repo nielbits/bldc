@@ -285,6 +285,8 @@ typedef struct {
 
 	int_fast64_t m_motor_rads_filtered_diff_fp;  // fixed-point filtered angular accel
 	int_fast64_t m_motor_rpm_previous_rad_fp;
+	int_fast64_t accel_filtered_fp;  // filtered acceleration (scaled)
+
 	float m_motor_rpm_previous_rad;       // last omega value (rad/s)
 	float m_motor_rads_filtered_diff;
 	//soll speed (model speed)
@@ -314,7 +316,15 @@ typedef struct {
 	float te_calculated;
 
 
-	//t
+	// Kalman state variables
+	float omega_kf;       // Estimated speed
+	float domega_kf;      // Estimated acceleration
+
+	// Covariance matrix
+	float P_00;
+	float P_01;
+	float P_10;
+	float P_11;
 } motor_all_state_t;
 
 
