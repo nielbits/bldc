@@ -319,7 +319,15 @@ typedef struct {
 	// Kalman state variables
 	float omega_kf;       // Estimated speed
 	float domega_kf;      // Estimated acceleration
+	float t_ext_kf;		 // external torque
+	float pll_speed_filtered; //previously filtered speed
 
+
+	//
+
+	int_fast64_t omega_fp;              // scaled rad/s
+	int_fast64_t omega_filtered_fp;     // filtered scaled speed
+	
 	// Covariance matrix
 	float P_00;
 	float P_01;

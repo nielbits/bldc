@@ -395,6 +395,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.P_01 = 0.0f;
 	m_motor_1.P_10 = 0.0f;
 	m_motor_1.P_11 = 1.0f;
+	m_motor_1.pll_speed_filtered=0.0f;
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
