@@ -381,12 +381,14 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_c_bw=0.0015f;
 	m_motor_1.p_c_wl= 0.076f;//air resistance coefficient
 	m_motor_1.p_wheel_radius= 0.3556f; //bike wheel radius;
-	m_motor_1.p_mech_gearing=(240.0f/90.0f);//mechanical gearing from motor to crank = 240/90
+	m_motor_1.p_mech_gearing=(200.0f/25.0f)*(70.0f/25.0f);//(240.0f/90.0f) for big bike;//mechanical gearing from motor to crank = 240/90
 	m_motor_1.p_r_bearings=0.014f;
 	m_motor_1.p_k_v_bw= 0.00001f;
 	//neeeds to be corrected
-	m_motor_1.p_kT= (float)(1.5f*0.001913f *23.0f);//*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2.0
-	m_motor_1.p_J= 18.2f; //moment of inertia
+	m_motor_1.p_kT= (float)(1.5f*0.00455f *14.0f);//*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2.0
+	m_motor_1.p_J= 0.0045;//18.2f; //moment of inertia
+
+	//kalman filter initialization
 
 	m_motor_1.omega_kf = 0.0f;
 	m_motor_1.domega_kf = 0.0f;

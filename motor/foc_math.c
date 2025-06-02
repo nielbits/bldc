@@ -548,39 +548,24 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float slope = incline * 3.141592 / 180.0; //inclination angle, radians
 
 	//online updated parameters(cyclewise calculated)
-	float speed			= motor->m_speed_est_fast*motor->p_wheel_radius/(motor->m_conf->si_motor_poles/2)/gearing/1.36363636;//speed in m/s
+	float speed			= motor->m_speed_est_fast*motor->p_wheel_radius/(motor->m_conf->si_motor_poles)/gearing;//speed in m/s  alternative: motor->d_speed_soll;//
     float F_air       = speed*speed*motor->p_air_ro*motor->p_c_wl*motor->p_As;
-    float F_roll      =0.00;// motor->p_weight* 9.81* cos(slope);//(bike_weight+rider_weight)*9.81*mu_rr*speed; no need to FF bc it doesnt vary.
+    float F_roll      =motor->p_c_rr*motor->p_weight* 9.81* cos(slope);
 	
     float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed 
 	float F_bearings= (motor->p_weight)*motor->p_c_bw*9.81*(speed/motor->p_wheel_radius)/motor->p_r_bearings*motor->p_k_v_bw* cos(slope);
 	//F_res calculation
 
 	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
-	float F_f_comp= 0;//(rpm/(motor->m_conf->si_motor_poles/2)*0.002188+0.784982*motor->p_kT/motor->p_wheel_radius);
-
-
-
-	//finish filtered derivative calculation
-
-
-
-
-	//calculate TP
 	
 	
 
 	#define SCALE_INT 100000000.0f   // Float version for scaling
-	#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
+	//#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
 
-	static int filter_counter = 0;
-	motor->omega_fp = (int_fast64_t)(motor->m_pll_speed * SCALE_INT);
-	filter_counter++;
-	if (filter_counter >= 5) {//for 1ms cycle(1kHz), 5 ms update
-		UTILS_LP_FAST_I64(&motor->omega_filtered_fp, motor->omega_fp, 90);
-		filter_counter = 0;
-	}
-	
+	motor->omega_fp = (int_fast64_t)(motor->m_speed_est_fast_corrected * SCALE_INT);
+
+	UTILS_LP_FAST_I64(&motor->omega_filtered_fp, motor->omega_fp, 50);
 
 	// --- Calculate motor torque ---
 	motor->te_calculated = motor->m_motor_state.iq * motor->p_kT +
@@ -591,8 +576,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// --- 2-State Kalman Filter: [omega, T_ext] ---
 	// Constants
-	const float R_meas = 1.0f;//0.3f * 0.3f;  // Measurement noise (rad/s)^2
-	const float Q_text = 0.01f;           // Process noise on T_ext
+	const float R_meas = 0.1;//0.3f * 0.3f;  // Measurement noise (rad/s)^2
+	const float Q_text = 0.02f;           // Process noise on T_ext
 	const float J = motor->p_J;
 	const float Te = motor->te_calculated;
 
@@ -620,6 +605,12 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float z = (float)(motor->omega_filtered_fp) / SCALE_INT;  // Or m_speed_est_fast
 	float y = z - motor->omega_kf; // Innovation
 
+	//friction compensation
+	float Tc = -1.77f;
+	float b = -1.45e-5f;
+	float T_friction=Tc*((z > 0.0f) ? 1.0f : (z < 0.0f ? -1.0f : 0.0f)) + b * fabsf(z) ; // Friction torque
+	
+
 	float S = motor->P_00 + R_meas;
 	float K0 = motor->P_00 / S;
 	float K1 = motor->P_10 / S;
@@ -635,13 +626,16 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->P_11 -= K1 * motor->P_01;
 
 	// --- Observer output (already filtered via Kalman) ---
-	motor->tp_observed = motor->t_ext_kf;
+	motor->tp_observed = motor->t_ext_kf - T_friction;
 
 	// --- Acceleration for integration (still uses full force model) ---
-	motor->accel_ist = ((-motor->d_f_motor - F_combine + F_f_comp) * gearing * 0.02075f) * SCALE_INT;
+	motor->accel_ist = ((motor->tp_observed/(motor->p_wheel_radius) - F_combine ) * gearing * 0.0108f) * SCALE_INT;
 
 	// --- Position integration (fixed-point) ---
 	motor->integrated_value = (int_fast64_t)(((motor->last_accel + motor->accel_ist) * (dt * SCALE_INT)) / (SCALE_INT * 2)) + motor->integrated_value;
+	if (motor->integrated_value < 0) {
+    motor->integrated_value = 0;
+	}
 	motor->last_accel = motor->accel_ist;
 	motor->d_speed_soll = (float)(motor->integrated_value / SCALE_INT);
 
@@ -660,7 +654,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->c_v_q_ff= i_res_out*motor->m_res_est; //+ motor->m_speed_est_fast*lq*i_res_out; 
 
 	// Other motor variables remain unchanged
-	motor->d_speed = speed;
+	motor->d_speed = motor->m_speed_est_fast*motor->p_wheel_radius/(motor->m_conf->si_motor_poles)/gearing;//speed in m/s;
 	motor->d_f_air = F_air;
 	motor->d_f_combine = F_combine;
 	motor->d_f_bearings = F_bearings;

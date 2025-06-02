@@ -310,11 +310,8 @@ typedef struct {
 
 	//TP observer calculations
 
-
-
 	float tp_observed;
 	float te_calculated;
-
 
 	// Kalman state variables
 	float omega_kf;       // Estimated speed
@@ -333,6 +330,7 @@ typedef struct {
 	float P_01;
 	float P_10;
 	float P_11;
+
 } motor_all_state_t;
 
 
