@@ -544,17 +544,17 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	//possibly changeable parameters
 	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
 	float incline=0.000; //inclination angle, degrees,slope
-	float gearing = motor->p_mech_gearing/gear_ratio;// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
+	float gearing = (float)(motor->p_mech_gearing/gear_ratio);// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
 	float slope = incline * 3.141592 / 180.0; //inclination angle, radians
 
 	//online updated parameters(cyclewise calculated)
-	float speed			= motor->m_speed_est_fast*motor->p_wheel_radius/(motor->m_conf->si_motor_poles)/gearing;//speed in m/s  alternative: motor->d_speed_soll;//
+	float speed			= motor->m_pll_speed*motor->p_wheel_radius/(motor->m_conf->si_motor_poles/2.0f)/gearing;//speed in m/s  alternative: motor->d_speed_soll;//
     float F_air       = speed*speed*motor->p_air_ro*motor->p_c_wl*motor->p_As;
     float F_roll      =motor->p_c_rr*motor->p_weight* 9.81* cos(slope);
 	
     float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed 
 	float F_bearings= (motor->p_weight)*motor->p_c_bw*9.81*(speed/motor->p_wheel_radius)/motor->p_r_bearings*motor->p_k_v_bw* cos(slope);
-	//F_res calculation
+	//F_res calculation	
 
 	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
 	
@@ -565,7 +565,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	motor->omega_fp = (int_fast64_t)(motor->m_speed_est_fast_corrected * SCALE_INT);
 
-	UTILS_LP_FAST_I64(&motor->omega_filtered_fp, motor->omega_fp, 50);
+	UTILS_LP_FAST_I64(&motor->omega_filtered_fp, motor->omega_fp, 30);
 
 	// --- Calculate motor torque ---
 	motor->te_calculated = motor->m_motor_state.iq * motor->p_kT +
@@ -577,7 +577,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// --- 2-State Kalman Filter: [omega, T_ext] ---
 	// Constants
 	const float R_meas = 0.1;//0.3f * 0.3f;  // Measurement noise (rad/s)^2
-	const float Q_text = 0.02f;           // Process noise on T_ext
+	const float Q_text = 0.05f;           // Process noise on T_ext
 	const float J = motor->p_J;
 	const float Te = motor->te_calculated;
 
@@ -606,8 +606,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float y = z - motor->omega_kf; // Innovation
 
 	//friction compensation
-	float Tc = -1.77f;
-	float b = -1.45e-5f;
+	float Tc = -0.31f;//-1.77f;
+	float b = 0.000149291f;//-1.38e-4f;
 	float T_friction=Tc*((z > 0.0f) ? 1.0f : (z < 0.0f ? -1.0f : 0.0f)) + b * fabsf(z) ; // Friction torque
 	
 

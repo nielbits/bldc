@@ -1142,9 +1142,10 @@ void mcpwm_foc_set_gear_ratio(float gear_ratio) {
 
 
 float mcpwm_foc_get_gear_ratio() {
-	volatile motor_all_state_t *motor = get_motor_now();
-	float gr=motor->gear_ratio_bike;
-	return gr;
+	//volatile motor_all_state_t *motor = get_motor_now();
+	//float gr=motor->gear_ratio_bike;
+	//return gr;
+	return get_motor_now()->P_11;
 }
 
 float mcpwm_foc_get_f_bearings(){
@@ -5175,6 +5176,7 @@ static void terminal_plot_hfi(int argc, const char **argv) {
 
 float mcpwm_foc_get_i_res(void) {
 	return get_motor_now()->d_i_res;
+	
 }
 float mcpwm_foc_get_speed(void){
 	return get_motor_now()->d_speed;
