@@ -393,10 +393,10 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.omega_kf = 0.0f;
 	m_motor_1.domega_kf = 0.0f;
 
-	m_motor_1.P_00 = 1.0f;
-	m_motor_1.P_01 = 0.0f;
-	m_motor_1.P_10 = 0.0f;
-	m_motor_1.P_11 = 1.0f;
+	m_motor_1.P_00 = 0.05f;
+	m_motor_1.P_01 = 0.04f;
+	m_motor_1.P_10 = 0.17f;
+	m_motor_1.P_11 = 0.24f;
 	m_motor_1.pll_speed_filtered=0.0f;
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
@@ -1145,7 +1145,7 @@ float mcpwm_foc_get_gear_ratio() {
 	//volatile motor_all_state_t *motor = get_motor_now();
 	//float gr=motor->gear_ratio_bike;
 	//return gr;
-	return get_motor_now()->P_11;
+	return get_motor_now()->gear_ratio_bike;
 }
 
 float mcpwm_foc_get_f_bearings(){
