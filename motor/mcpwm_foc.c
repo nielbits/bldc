@@ -1159,7 +1159,7 @@ float mcpwm_foc_get_f_bearings(){
 float mcpwm_foc_get_f_roll(){
 	volatile motor_all_state_t *motor = get_motor_now();
 	//return motor->d_f_roll;
-	return motor->te_calculated;
+ 	return motor->d_erpm_soll;
 	
 }
 

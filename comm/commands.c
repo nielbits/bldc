@@ -444,7 +444,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			//buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 12)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_f_air(), 1e4, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_f_roll(), 1e4, &ind);
 			//buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 13)) {

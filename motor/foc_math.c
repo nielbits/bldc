@@ -518,7 +518,10 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		break;
 	}
 
-	float error = motor->m_speed_pid_set_rpm - rpm;
+	//float error = motor->m_speed_pid_set_rpm - rpm;
+	//use the internal speed_soll directly as reference(no exchange to matlab needed, 40x faster)
+
+	float error = motor->d_erpm_soll - rpm;
 
 	// Too low RPM set. Reset state, release motor and return.
 	if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
@@ -539,7 +542,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// Store previous error
 	motor->m_speed_prev_error = error;
 	//fixed parameters or very slowly changing parameters, calculated once at the initialization
-
+	//motor->d_rpm_soll=100.0f;
 
 	//possibly changeable parameters
 	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
@@ -549,7 +552,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	//online updated parameters(cyclewise calculated)
 	float speed			= motor->m_pll_speed*motor->p_wheel_radius/(motor->m_conf->si_motor_poles/2.0f)/gearing;//speed in m/s  alternative: motor->d_speed_soll;//
-    float F_air       = speed*speed*motor->p_air_ro*motor->p_c_wl*motor->p_As;
+    float F_air       = speed*speed*motor->p_air_ro *motor->p_c_wl*motor->p_As;
     float F_roll      =motor->p_c_rr*motor->p_weight* 9.81* cos(slope);
 	
     float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed 
@@ -560,7 +563,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	
 	
 
-	#define SCALE_INT 100000000.0f   // Float version for scaling
+	#define SCALE_INT 10000000.0f   // Float version for scaling
 	//#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
 
 	motor->omega_fp = (int_fast64_t)(motor->m_speed_est_fast_corrected * SCALE_INT);
@@ -598,8 +601,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// --- Measurement update (z = measured omega) ---
 
-	//#define PLL_SPEED_ALPHA 0.98f  // 0.95–0.99 depending on how much smoothing you want
-	//motor->pll_speed_filtered = motor->pll_speed_filtered * PLL_SPEED_ALPHA + motor->m_pll_speed * (1.0f - PLL_SPEED_ALPHA);
 
 	
 	float z = (float)(motor->omega_filtered_fp) / SCALE_INT;  // Or m_speed_est_fast
@@ -640,11 +641,16 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->d_speed_soll = (float)(motor->integrated_value / SCALE_INT);
 
 
-	float weight_inv= 1.0f/(motor->p_weight);
+	//speed setpoint calculation
+
+	float v = (float)motor->integrated_value / SCALE_INT; // linear speed in m/s
+	float omega_mech = v *  (gearing) / motor->p_wheel_radius;  // rad/s
+	motor->d_erpm_soll = omega_mech  * 9.54929 * (motor->m_conf->si_motor_poles/2.0f);
 
 	// i_res calculation
 
 	float T_res=F_combine*motor->p_wheel_radius/gearing;
+	
 	float i_res= -T_res/motor->p_kT;//motor->p_kT;
 	
 	//float lq= motor->m_conf->foc_motor_l+motor->m_conf->foc_motor_ld_lq_diff/2.0;

@@ -246,8 +246,8 @@ typedef struct {
 	float d_f_air;
 	float d_f_combine;
 	float d_f_bearings;
-	float d_f_roll;
-
+	float d_f_roll;	
+	float d_erpm_soll; //desired rpm
 	float d_i_res;
 
 
@@ -306,6 +306,7 @@ typedef struct {
 	float p_k_v_bw;
 	float p_kT;
 	float p_J;
+
 
 
 	//TP observer calculations
