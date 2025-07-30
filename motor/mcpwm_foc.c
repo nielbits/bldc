@@ -54,7 +54,6 @@ static volatile motor_all_state_t m_motor_2;
 static volatile int m_isr_motor = 0;
 
 // Private functions
-static void init_lead_controllers(motor_all_state_t *motor, float T1_c, float T2_c, float T1_s, float T2_s, float Ts);
 static void control_current(motor_all_state_t *motor, float dt);
 static void update_valpha_vbeta(motor_all_state_t *motor, float mod_alpha, float mod_beta);
 static void stop_pwm_hw(motor_all_state_t *motor);
@@ -4780,7 +4779,6 @@ static void control_current(motor_all_state_t *motor, float dt) {
 		} else {
 			if (motor->m_pwm_mode != FOC_PWM_ENABLED) {
 				start_pwm_hw(motor);
-				init_lead_controllers(motor,0.53,0.053,0.53,0.053,dt);// cutoff frequency = 3Hz, 0.796 for 2 Hz	
 			}
 		}
 	}
@@ -5191,34 +5189,5 @@ float mcpwm_foc_get_f_combine(void){
 
 float calculate_crossover_freq(float T1, float T2) {
     return 1.0f / (2.0f * M_PI * sqrtf(T1 * T2));
-}
-
-static void init_lead_controllers(motor_all_state_t *motor, float T1_c, float T2_c, float T1_s, float T2_s, float Ts) {
-
-
-float Ts_inv = 2.0f / Ts;
-
-// Controller for current loop
-motor->c_lead_a0 = (Ts_inv + 1.0f / T1_c) / (Ts_inv + 1.0f / T2_c);
-motor->c_lead_a1 = (1.0f / T2_c - 1.0f / T1_c) / (Ts_inv + 1.0f / T2_c);
-motor->c_lead_b0 = Ts_inv / (Ts_inv + 1.0f / T2_c);
-motor->c_lead_b1 = -motor->c_lead_b0;
-motor->c_lead_prev_input = 0.0f;
-motor->c_lead_prev_output = 0.0f;
-
-// Controller for speed loop
-motor->s_lead_a0 = (Ts_inv + 1.0f / T1_s) / (Ts_inv + 1.0f / T2_s);
-motor->s_lead_a1 = (1.0f / T2_s - 1.0f / T1_s) / (Ts_inv + 1.0f / T2_s);
-motor->s_lead_b0 = Ts_inv / (Ts_inv + 1.0f / T2_s);
-motor->s_lead_b1 = -motor->s_lead_b0;
-motor->s_lead_prev_input = 0.0f;
-motor->s_lead_prev_output = 0.0f;
-
-// Optional: calculate and log the crossover frequencies
-float fc_c = calculate_crossover_freq(T1_c, T2_c);
-float fc_s = calculate_crossover_freq(T1_s, T2_s);
-
-printf("Current loop lead crossover freq ≈ %.2f Hz\n", fc_c);
-printf("Speed loop lead crossover freq ≈ %.2f Hz\n", fc_s);
 }
 

@@ -259,22 +259,6 @@ typedef struct {
 
 	float c_v_q_ff;
 
-	//values to be used for lead compensator controllers
-
-	float c_lead_a0;
-	float c_lead_a1;
-	float c_lead_b0;
-	float c_lead_b1;
-	float c_lead_prev_input;
-	float c_lead_prev_output;
-
-	float s_lead_a0;
-	float s_lead_a1;
-	float s_lead_b0;
-	float s_lead_b1;
-	float s_lead_prev_input;
-	float s_lead_prev_output;
-
 	//trapezoidal integration and tp observer int
 	int_fast64_t last_accel;
 	int_fast64_t integrated_value;
@@ -331,6 +315,21 @@ typedef struct {
 	float P_01;
 	float P_10;
 	float P_11;
+
+
+	// Kalman filter state for estimating [theta, omega, T_p]
+	float kalman_x[3];         // State vector: [theta, omega, T_p]
+	float kalman_P[3][3];      // Covariance matrix
+	float kalman_Q[3][3];      // Process noise covariance
+	float kalman_R;            // Measurement noise variance
+	float kalman_dt;           // Sampling period [s]
+	float kalman_J;            // Effective inertia [kg·m²]
+
+	// Unwrapped angle (split into coarse + fine for precision)
+	int32_t kalman_rev_counter;   // Coarse revolutions counter (each full 2π step)
+	float kalman_fine_angle;      // Fine angle in [0, 2π) with float precision
+	float kalman_last_raw_angle;  // Last raw angle [rad], for delta computation
+
 
 } motor_all_state_t;
 

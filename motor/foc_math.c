@@ -542,7 +542,33 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// Store previous error
 	motor->m_speed_prev_error = error;
 	//fixed parameters or very slowly changing parameters, calculated once at the initialization
-	//motor->d_rpm_soll=100.0f;
+	
+
+	// Compute delta angle
+	float delta = utils_angle_difference(motor->angle_now, motor->kalman_last_raw_angle);
+	motor->kalman_last_raw_angle = motor->angle_now;
+
+	// Update fine angle
+	motor->kalman_fine_angle += delta;
+
+	if (motor->kalman_fine_angle >= M_TWOPI) {
+		motor->kalman_fine_angle -= M_TWOPI;
+		motor->kalman_rev_counter++;
+	} else if (motor->kalman_fine_angle < 0.0f) {
+		motor->kalman_fine_angle += M_TWOPI;
+		motor->kalman_rev_counter--;
+	}
+
+	// Compute full unwrapped angle
+	float unwrapped_theta = ((float)motor->kalman_rev_counter) * M_TWOPI + motor->kalman_fine_angle;
+
+
+
+
+
+
+
+
 
 	//possibly changeable parameters
 	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
