@@ -20,6 +20,7 @@
 
 #include "foc_math.h"
 #include "utils_math.h"
+#include "encoder/encoder.h"
 #include <math.h>
 
 // See http://cas.ensmp.fr/~praly/Telechargement/Journaux/2010-IEEE_TPEL-Lee-Hong-Nam-Ortega-Praly-Astolfi.pdf
@@ -541,33 +542,20 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// Store previous error
 	motor->m_speed_prev_error = error;
-	//fixed parameters or very slowly changing parameters, calculated once at the initialization
-	
+	float angle_deg_now = encoder_read_deg();
+	float angle_rad_now = angle_deg_now * (M_PI / 180.0f);  // Convert to radians
 
-	// Compute delta angle
-	float delta = utils_angle_difference(motor->angle_now, motor->kalman_last_raw_angle);
-	motor->kalman_last_raw_angle = motor->angle_now;
+	// Compute delta using unwrap-safe function (handles wrap around 2π)
+	float delta_rad = utils_angle_difference_rad(angle_rad_now, motor->kalman_last_angle_rad);
 
-	// Update fine angle
-	motor->kalman_fine_angle += delta;
+	// Store the new angle
+	motor->kalman_last_angle_rad = angle_rad_now;
 
-	if (motor->kalman_fine_angle >= M_TWOPI) {
-		motor->kalman_fine_angle -= M_TWOPI;
-		motor->kalman_rev_counter++;
-	} else if (motor->kalman_fine_angle < 0.0f) {
-		motor->kalman_fine_angle += M_TWOPI;
-		motor->kalman_rev_counter--;
-	}
+	// Accumulate unwrapped angle
+	motor->unwrapped_theta += delta_rad;
 
-	// Compute full unwrapped angle
-	float unwrapped_theta = ((float)motor->kalman_rev_counter) * M_TWOPI + motor->kalman_fine_angle;
-
-
-
-
-
-
-
+	// Save delta for next iteration
+	motor->kalman_last_delta_rad = delta_rad;
 
 
 	//possibly changeable parameters

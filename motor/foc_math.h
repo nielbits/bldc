@@ -317,19 +317,20 @@ typedef struct {
 	float P_11;
 
 
-	// Kalman filter state for estimating [theta, omega, T_p]
-	float kalman_x[3];         // State vector: [theta, omega, T_p]
-	float kalman_P[3][3];      // Covariance matrix
-	float kalman_Q[3][3];      // Process noise covariance
-	float kalman_R;            // Measurement noise variance
-	float kalman_dt;           // Sampling period [s]
-	float kalman_J;            // Effective inertia [kg·m²]
+	// --- Kalman Filter State for [theta, omega, T_p] ---
+	float kalman_x[3];              // [theta (rad), omega (rad/s), T_p (Nm)]
+	float kalman_P[3][3];           // Covariance matrix
+	float kalman_Q[3][3];           // Process noise covariance
+	float kalman_R;                 // Measurement noise variance
+	float kalman_dt;                // Sample time [s]
+	float kalman_J;                 // Inertia [kg·m²]
 
-	// Unwrapped angle (split into coarse + fine for precision)
-	int32_t kalman_rev_counter;   // Coarse revolutions counter (each full 2π step)
-	float kalman_fine_angle;      // Fine angle in [0, 2π) with float precision
-	float kalman_last_raw_angle;  // Last raw angle [rad], for delta computation
-
+	// --- Angle Unwrapping using encoder_read_deg()
+	float kalman_last_angle_rad;          // Last raw mechanical angle in degrees
+	float kalman_last_delta_rad;          // Last raw mechanical angle in degrees
+	int32_t kalman_rev_counter;     // Mechanical revolution counter
+	float kalman_fine_rad;          // Fine angle in [0, 2π) radians
+	float unwrapped_theta; // Mechanical angle in radians
 
 } motor_all_state_t;
 
