@@ -1348,8 +1348,7 @@ float mcpwm_foc_get_id_set(void) {
 }
 
 float mcpwm_foc_get_iq_set(void) {
-	//return get_motor_now()->m_iq_set;
-	return get_motor_now()->unwrapped_theta;
+	return get_motor_now()->m_iq_set;
 }
 
 /**
@@ -1505,6 +1504,17 @@ float mcpwm_foc_get_est_lambda(void) {
 float mcpwm_foc_get_est_res(void) {
 	return get_motor_now()->m_res_est;
 }
+
+/// new reading values for command.c and MATLAB
+float mcpwm_foc_get_unwrapped_theta(void) {
+    return get_motor_now()->unwrapped_theta;
+}
+
+float mcpwm_foc_get_tp_observed(void) {
+    return get_motor_now()->tp_observed;
+}
+
+
 
 // NOTE: Requires the regular HFI sensor mode to run
 float mcpwm_foc_get_est_ind(void) {

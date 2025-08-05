@@ -462,6 +462,28 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		}
 		if (mask & ((uint32_t)1 << 17)) {
 			uint8_t current_controller_id = app_get_configuration()->controller_id;
+		}
+		if (mask & ((uint32_t)1 << 18)) {
+			buffer_append_float32(send_buffer, mcpwm_foc_get_unwrapped_theta(), 1e4, &ind);
+		}
+		if (mask & ((uint32_t)1 << 19)) {
+			buffer_append_float32(send_buffer, mcpwm_foc_get_tp_observed(), 1e4, &ind);
+		}
+		/*
+		if (mask & ((uint32_t)1 << 20)) {
+			buffer_append_float32(send_buffer, mcpwm_foc_get_kalman_omega(), 1e4, &ind);
+		}
+		if (mask & ((uint32_t)1 << 21)) {
+			buffer_append_float32(send_buffer, mcpwm_foc_get_kalman_tp(), 1e4, &ind);
+		}
+		if (mask & ((uint32_t)1 << 22)) {
+			buffer_append_float32(send_buffer, mcpwm_foc_get_f_friction(), 1e4, &ind);
+		}
+		if (mask & ((uint32_t)1 << 23)) {
+			buffer_append_float32(send_buffer, mcpwm_foc_get_tp_raw(), 1e4, &ind);
+		}*/
+
+			// If the second motor is running, we need to send the controller ID for that motor.
 #ifdef HW_HAS_DUAL_MOTORS
 			if (mc_interface_get_motor_thread() == 2) {
 				current_controller_id = utils_second_motor_id();
