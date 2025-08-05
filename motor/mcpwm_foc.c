@@ -1152,16 +1152,12 @@ float mcpwm_foc_get_gear_ratio() {
 float mcpwm_foc_get_f_bearings(){
 	volatile motor_all_state_t *motor = get_motor_now();
 	
-	//return motor->d_f_bearings;	
-	//return motor->tp_observed;
-	return motor->unwrapped_theta;
-	
-
+	return motor->d_f_bearings;		
 }
 float mcpwm_foc_get_f_roll(){
 	volatile motor_all_state_t *motor = get_motor_now();
-	//return motor->d_f_roll;
- 	return motor->d_erpm_soll;
+	return motor->d_f_roll;
+
 	
 }
 
@@ -1512,6 +1508,9 @@ float mcpwm_foc_get_unwrapped_theta(void) {
 
 float mcpwm_foc_get_tp_observed(void) {
     return get_motor_now()->tp_observed;
+}
+float mcpwm_foc_get_erpm_soll(void) {
+    return get_motor_now()->d_erpm_soll;
 }
 
 

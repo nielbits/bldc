@@ -469,10 +469,10 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		if (mask & ((uint32_t)1 << 19)) {
 			buffer_append_float32(send_buffer, mcpwm_foc_get_tp_observed(), 1e4, &ind);
 		}
-		/*
 		if (mask & ((uint32_t)1 << 20)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_kalman_omega(), 1e4, &ind);
+			buffer_append_float32(send_buffer, mcpwm_foc_get_erpm_soll(), 1e4, &ind);
 		}
+		/*
 		if (mask & ((uint32_t)1 << 21)) {
 			buffer_append_float32(send_buffer, mcpwm_foc_get_kalman_tp(), 1e4, &ind);
 		}
