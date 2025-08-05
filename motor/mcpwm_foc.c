@@ -397,6 +397,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.P_10 = 0.17f;
 	m_motor_1.P_11 = 0.24f;
 	m_motor_1.pll_speed_filtered=0.0f;
+	m_motor_1.kalman_last_angle_rad=encoder_read_deg();
+	m_motor_1.unwrapped_theta=0.0f;
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
@@ -1151,8 +1153,9 @@ float mcpwm_foc_get_f_bearings(){
 	volatile motor_all_state_t *motor = get_motor_now();
 	
 	//return motor->d_f_bearings;	
-	return motor->tp_observed;
-
+	//return motor->tp_observed;
+	return motor->unwrapped_theta;
+	
 
 }
 float mcpwm_foc_get_f_roll(){
@@ -1345,7 +1348,8 @@ float mcpwm_foc_get_id_set(void) {
 }
 
 float mcpwm_foc_get_iq_set(void) {
-	return get_motor_now()->m_iq_set;
+	//return get_motor_now()->m_iq_set;
+	return get_motor_now()->unwrapped_theta;
 }
 
 /**
