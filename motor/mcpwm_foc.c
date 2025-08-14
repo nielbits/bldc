@@ -1162,6 +1162,28 @@ float mcpwm_foc_get_f_roll(){
 	
 }
 
+float mcpwm_foc_get_erpm_soll(){
+	volatile motor_all_state_t *motor = get_motor_now();
+	//return motor->d_f_roll;
+ 	return motor->d_erpm_soll;
+	
+}
+float mcpwm_foc_get_uw_theta(){
+	volatile motor_all_state_t *motor = get_motor_now();
+ 	return motor->unwrapped_theta;
+	
+}
+float mcpwm_foc_get_kalman_omega(void){
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor->omega_kf;
+
+}
+float mcpwm_foc_get_tp_observed(void){
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor->tp_observed;
+}
+
+
 float mcpwm_foc_get_model_speed(void){
 	volatile motor_all_state_t *motor = get_motor_now();
 	return motor->d_speed_soll;
