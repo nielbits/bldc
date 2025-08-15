@@ -1149,29 +1149,21 @@ float mcpwm_foc_get_gear_ratio() {
 
 float mcpwm_foc_get_f_bearings(){
 	volatile motor_all_state_t *motor = get_motor_now();
-	
-	//return motor->d_f_bearings;	
-	return motor->tp_observed;
 
-
+	return motor->d_f_bearings;	
 }
 float mcpwm_foc_get_f_roll(){
 	volatile motor_all_state_t *motor = get_motor_now();
-	//return motor->d_f_roll;
- 	return motor->d_erpm_soll;
-	
+	return motor->d_f_roll;
 }
 
 float mcpwm_foc_get_erpm_soll(){
 	volatile motor_all_state_t *motor = get_motor_now();
-	//return motor->d_f_roll;
  	return motor->d_erpm_soll;
-	
 }
 float mcpwm_foc_get_uw_theta(){
 	volatile motor_all_state_t *motor = get_motor_now();
  	return motor->unwrapped_theta;
-	
 }
 float mcpwm_foc_get_kalman_omega(void){
 	volatile motor_all_state_t *motor = get_motor_now();
