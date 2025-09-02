@@ -367,6 +367,9 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
 	//m_motor_1.hp_firstCall=1;
+
+	m_motor_1.bigmotor=false;
+
 	//HERE HERE HERE
 	m_motor_1.last_accel = 0.0f;
 	m_motor_1.integrated_value = 0.0f;
@@ -374,29 +377,92 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	//parameter initialization
 	m_motor_1.p_air_ro=1.2f; //air density
 	m_motor_1.p_c_rr= 0.0025f; //rolling friction
-	m_motor_1.p_weight= 85.0f+8.1f;
+	m_motor_1.p_weight= 75.0f+8.1f;
 	m_motor_1.p_As= 0.509f; //section area
 	m_motor_1.p_c_air= 0.76f; //drag coefficient
 	m_motor_1.p_c_bw=0.0015f;
 	m_motor_1.p_c_wl= 0.076f;//air resistance coefficient
 	m_motor_1.p_wheel_radius= 0.3556f; //bike wheel radius;
-	m_motor_1.p_mech_gearing=(200.0f/25.0f)*(70.0f/25.0f);//(240.0f/90.0f) for big bike;//mechanical gearing from motor to crank = 240/90
 	m_motor_1.p_r_bearings=0.014f;
 	m_motor_1.p_k_v_bw= 0.00001f;
 	//neeeds to be corrected
-	m_motor_1.p_kT= (float)(1.5f*0.00455f *14.0f);//*(motor->m_conf->foc_motor_flux_linkage)*(motor->m_conf->si_motor_poles)/2.0
-	m_motor_1.p_J= 0.0045;//18.2f; //moment of inertia
+
+	if (m_motor_1.bigmotor){
+		m_motor_1.p_J= 18.2f;
+		m_motor_1.p_kT= (float)(1.5f*0.01927f *23.0f);
+		m_motor_1.p_mech_gearing=(240.0f/90.0f);// (200.0f/25.0f)*(70.0f/25.0f) small bike;//(240.0f/90.0f) for big bike;//mechanical gearing from motor to crank = 240/90
+
+	}
+	else
+	{
+		m_motor_1.p_kT= (float)(1.5f*0.00455f *7.0f);
+		m_motor_1.p_J= 0.0045f;
+		m_motor_1.p_mech_gearing=(200.0f/25.0f)*(70.0f/25.0f);
+	}
 
 	//kalman filter initialization
 
-	m_motor_1.omega_kf = 0.0f;
-	m_motor_1.domega_kf = 0.0f;
 
-	m_motor_1.P_00 = 0.05f;
-	m_motor_1.P_01 = 0.04f;
-	m_motor_1.P_10 = 0.17f;
-	m_motor_1.P_11 = 0.24f;
-	m_motor_1.pll_speed_filtered=0.0f;
+
+	float angle_deg0 = encoder_read_deg();                 // deg
+	if (!isfinite(angle_deg0)) { angle_deg0 = 0.0f; }      // guard on very early boot
+	float angle_rad0 = angle_deg0 * (M_PI / 180.0f);       // rad
+
+	// Unwrap helpers
+	m_motor_1.kalman_last_angle_rad = angle_rad0;          // last raw
+	m_motor_1.kalman_last_delta_rad = 0.0f;
+	m_motor_1.kalman_rev_counter = 0;
+	m_motor_1.kalman_fine_rad = fmodf(angle_rad0, 2.0f * (float)M_PI);
+	m_motor_1.unwrapped_theta = angle_rad0;                // start unwrapped here
+
+	// State x = [theta, omega, T_p]
+	m_motor_1.kalman_x[0] = m_motor_1.unwrapped_theta;     // rad
+	m_motor_1.kalman_x[1] = 0.0f;                          // rad/s
+	m_motor_1.kalman_x[2] = 0.0f;                          // Nm
+
+
+	if (m_motor_1.bigmotor)
+	{
+    // Covariance P (diagonal, fairly generous to let the filter settle)
+		m_motor_1.kalman_P[0][0] = 1.0f;   m_motor_1.kalman_P[0][1] = 0.0f;   m_motor_1.kalman_P[0][2] = 0.0f;
+		m_motor_1.kalman_P[1][0] = 0.0f;   m_motor_1.kalman_P[1][1] = 10.0f;  m_motor_1.kalman_P[1][2] = 0.0f;
+		m_motor_1.kalman_P[2][0] = 0.0f;   m_motor_1.kalman_P[2][1] = 0.0f;   m_motor_1.kalman_P[2][2] = 5.0f;
+
+		// Process noise Q (tunable; T_p as random walk a bit larger)
+		m_motor_1.kalman_Q[0][0] = 1e-6f;  m_motor_1.kalman_Q[0][1] = 0.0f;   m_motor_1.kalman_Q[0][2] = 0.0f;
+		m_motor_1.kalman_Q[1][0] = 0.0f;   m_motor_1.kalman_Q[1][1] = 2e-3f;  m_motor_1.kalman_Q[1][2] = 0.0f;
+		m_motor_1.kalman_Q[2][0] = 0.0f;   m_motor_1.kalman_Q[2][1] = 0.0f;   m_motor_1.kalman_Q[2][2] = 2e-5f;
+		m_motor_1.Tc =5.1e-5;
+		m_motor_1.b=1.44e-7;
+
+	}
+	else{
+		//small motor config
+		m_motor_1.kalman_P[0][0] = 1.0f;   m_motor_1.kalman_P[0][1] = 0.0f;   m_motor_1.kalman_P[0][2] = 0.0f;
+		m_motor_1.kalman_P[1][0] = 0.0f;   m_motor_1.kalman_P[1][1] = 10.0f;  m_motor_1.kalman_P[1][2] = 0.0f;
+		m_motor_1.kalman_P[2][0] = 0.0f;   m_motor_1.kalman_P[2][1] = 0.0f;   m_motor_1.kalman_P[2][2] = 5.0f;
+
+		// Process noise Q (tunable; T_p as random walk a bit larger)
+		m_motor_1.kalman_Q[0][0] = 1e-6f;  m_motor_1.kalman_Q[0][1] = 0.0f;   m_motor_1.kalman_Q[0][2] = 0.0f;
+		m_motor_1.kalman_Q[1][0] = 0.0f;   m_motor_1.kalman_Q[1][1] = 2e-3f;  m_motor_1.kalman_Q[1][2] = 0.0f;
+		m_motor_1.kalman_Q[2][0] = 0.0f;   m_motor_1.kalman_Q[2][1] = 0.0f;   m_motor_1.kalman_Q[2][2] = 2e-5f;
+		m_motor_1.Tc =	-0.31f;
+		m_motor_1.b =	0.000149291f;
+	}
+	/*/ Covariance P (diagonal, fairly generous to let the filter settle)
+	
+
+    */
+
+
+
+
+	// Measurement noise (variance!) for angle in rad^2.
+	// Example: 0.05 deg std -> variance = (0.05 * pi/180)^2
+	#define ENC_STD_DEG   0.05f            // your previous choice
+	
+	const float enc_std_rad = ENC_STD_DEG * (float)M_PI / 180.0f;
+	m_motor_1.kalman_R = enc_std_rad * enc_std_rad;   // rad^2
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
@@ -1167,7 +1233,7 @@ float mcpwm_foc_get_uw_theta(){
 }
 float mcpwm_foc_get_kalman_omega(void){
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor->omega_kf;
+	return motor->kalman_x[1] * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
 
 }
 float mcpwm_foc_get_tp_observed(void){
@@ -5188,7 +5254,7 @@ static void terminal_plot_hfi(int argc, const char **argv) {
 
 float mcpwm_foc_get_i_res(void) {
 	return get_motor_now()->d_i_res;
-	
+		
 }
 float mcpwm_foc_get_speed(void){
 	return get_motor_now()->d_speed;
@@ -5198,6 +5264,9 @@ float mcpwm_foc_get_f_air(void){
 }
 float mcpwm_foc_get_f_combine(void){
 	return get_motor_now()->d_f_combine;
+}
+float mcpwm_foc_get_tf(void){
+	return get_motor_now()->Tf_hat;
 }
 
 

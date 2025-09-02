@@ -97,6 +97,7 @@ float mcpwm_foc_get_est_ind(void);
 float mcpwm_foc_get_speed(void);
 float mcpwm_foc_get_f_air(void);
 float mcpwm_foc_get_f_combine(void);
+float mcpwm_foc_get_tf(void);
 float mcpwm_foc_get_i_res(void);
 
 //

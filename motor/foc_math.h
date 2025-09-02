@@ -296,6 +296,7 @@ typedef struct {
 	//TP observer calculations
 
 	float tp_observed;
+	float tp_observed_2;
 	float te_calculated;
 
 	// Kalman state variables
@@ -322,8 +323,7 @@ typedef struct {
 	float kalman_P[3][3];           // Covariance matrix
 	float kalman_Q[3][3];           // Process noise covariance
 	float kalman_R;                 // Measurement noise variance
-	float kalman_dt;                // Sample time [s]
-	float kalman_J;                 // Inertia [kg·m²]
+	float kalman_R_omega;
 
 	// --- Angle Unwrapping using encoder_read_deg()
 	float kalman_last_angle_rad;          // Last raw mechanical angle in degrees
@@ -331,7 +331,13 @@ typedef struct {
 	int32_t kalman_rev_counter;     // Mechanical revolution counter
 	float kalman_fine_rad;          // Fine angle in [0, 2π) radians
 	float unwrapped_theta; // Mechanical angle in radians
+	float unwrapped_theta_filtered; // Mechanical angle in radians
+	float ekf_rpm;
+	float Tc;
+	float b;
+	float Tf_hat;
 
+	bool bigmotor;
 } motor_all_state_t;
 
 
@@ -350,4 +356,14 @@ void foc_run_fw(motor_all_state_t *motor, float dt);
 void foc_hfi_adjust_angle(float ang_err, motor_all_state_t *motor, float dt);
 void foc_precalc_values(motor_all_state_t *motor);
 float band_pass_filter(float input,float centerFreq,   float bandwidth, float sampleRate, motor_all_state_t *motor);
+static inline float friction_T(float omega, float Tc, float b);
+static inline float sgn_db(float x, float dead);
+static inline float dTf_domega(float omega, float b);
+inline float Tf_smooth(float omega, float Tc, float B, float omega_s);
+inline void ekf3_step_simple(
+    motor_all_state_t *m,
+    float dt,
+    float Te,
+    float theta_meas
+);
 #endif /* FOC_MATH_H_ */

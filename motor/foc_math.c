@@ -519,10 +519,90 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		break;
 	}
 
+	//start KF 2 state
+
+	float angle_deg_now = encoder_read_deg();
+	float angle_rad_now = angle_deg_now * (M_PI / 180.0f);  // Convert to radians
+
+	// Compute delta using unwrap-safe function (handles wrap around 2π)
+	float delta_rad = utils_angle_difference_rad(angle_rad_now, motor->kalman_last_angle_rad);
+
+	// Store the new angle
+	motor->kalman_last_angle_rad = angle_rad_now;
+
+	// Accumulate unwrapped angle
+	motor->unwrapped_theta += delta_rad;
+
+	// Save delta for next iteration
+	motor->kalman_last_delta_rad = delta_rad;
+
+
+	// possibly changeable parameters
+	float gear_ratio = motor->gear_ratio_bike;
+	float incline    = 0.000f; // inclination angle, degrees
+	float gearing    = (float)(motor->p_mech_gearing / gear_ratio);  // motor to wheel, /gearin. wheel to motor, *gearin, if speed
+																	//if torque, motor to wheel * gearin, wheel to motor / gearin
+	float slope      = incline * 3.14159265359f / 180.0f;            // radians
+
+	// --- speed (fix: ERPM -> mech RPM -> rad/s -> m/s) ---
+	const float pole_pairs = motor->m_conf->si_motor_poles * 0.5f;   // poles -> pole-pairs
+	float rpm_m   = motor->m_speed_est_fast / pole_pairs;            // mech motor RPM
+	float rpm_w   = (rpm_m / gearing);    // wheel RPM (divide by Gm, multiply by Gbike)
+	float omega_w = rpm_w * (2.0f * 3.14159265359f / 60.0f);         // rad/s
+	float speed   = omega_w * motor->p_wheel_radius;                 // m/s  (kept name)
+
+	// --- forces (same variable names, corrected formulas) ---
+	float F_air     = 0.5f * motor->p_air_ro * motor->p_c_wl * motor->p_As * speed * speed;          // 0.5 * rho * Cd * A * v^2
+	float F_roll    = motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope);                          // Crr * m g cos(theta)
+	float F_incline = motor->p_weight * 9.81f * sinf(slope);                                          // m g sin(theta)  (set incline=0 if you want it off)
+	// simple viscous bearing drag in force-domain (N·s/m). keep name, fix units:
+	float F_bearings = (motor->p_c_bw * motor->p_k_v_bw) * speed;
+
+	// F_res calculation
+	float F_combine = F_air + F_roll + F_incline + F_bearings; // resistance force
+
+	
+
+	#define SCALE_INT 10000000.0f   // Float version for scaling
+	//#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
+
+	motor->omega_fp = (int_fast64_t)(motor->m_speed_est_fast_corrected * SCALE_INT);
+
+	UTILS_LP_FAST_I64(&motor->omega_filtered_fp, motor->omega_fp, 30);
+
+	// --- Calculate motor torque ---
+	motor->te_calculated = motor->m_motor_state.iq * motor->p_kT + (motor->m_motor_state.iq * motor->m_motor_state.id) * (motor->p_ld - motor->p_lq);
+
+
+						
+	//Kalman Filter 3 Steps implemented
+
+
+	//const float T_fric_ff = Tf_smooth(motor->kalman_x[1], -0.31f, 0.000149291f, 3.9f);
+	motor->unwrapped_theta_filtered=UTILS_LP_FAST(motor->unwrapped_theta_filtered,motor->unwrapped_theta,0.5);
+	ekf3_step_simple(
+    motor,
+    dt,
+    motor->te_calculated,   // Nm (you already compute this above)
+    motor->unwrapped_theta // rad (your unwrapped mech angle)
+	);
+
+	// Use EKF outputs
+	const float theta_hat = motor->kalman_x[0];
+	const float omega_hat = motor->kalman_x[1];
+	const float Tp_hat    = motor->kalman_x[2];
+
+	motor->ekf_rpm= omega_hat * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
+
 	//float error = motor->m_speed_pid_set_rpm - rpm;
 	//use the internal speed_soll directly as reference(no exchange to matlab needed, 40x faster)
+	float error;
 
-	float error = motor->d_erpm_soll - rpm;
+
+	error = motor->d_erpm_soll - motor->ekf_rpm;
+	
+
+
 
 	// Too low RPM set. Reset state, release motor and return.
 	if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
@@ -542,115 +622,25 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// Store previous error
 	motor->m_speed_prev_error = error;
-	float angle_deg_now = encoder_read_deg();
-	float angle_rad_now = angle_deg_now * (M_PI / 180.0f);  // Convert to radians
-
-	// Compute delta using unwrap-safe function (handles wrap around 2π)
-	float delta_rad = utils_angle_difference_rad(angle_rad_now, motor->kalman_last_angle_rad);
-
-	// Store the new angle
-	motor->kalman_last_angle_rad = angle_rad_now;
-
-	// Accumulate unwrapped angle
-	motor->unwrapped_theta += delta_rad;
-
-	// Save delta for next iteration
-	motor->kalman_last_delta_rad = delta_rad;
+	// Keep your original semantics for tp_observed:
 
 
-	//possibly changeable parameters
-	float gear_ratio = motor->gear_ratio_bike; //motor->gear_ratio_bike;
-	float incline=0.000; //inclination angle, degrees,slope
-	float gearing = (float)(motor->p_mech_gearing/gear_ratio);// with only mech gearing, gear ration = 1, the division by gear ratio generates the actual emulated gear ratio
-	float slope = incline * 3.141592 / 180.0; //inclination angle, radians
-
-	//online updated parameters(cyclewise calculated)
-	float speed			= motor->m_pll_speed*motor->p_wheel_radius/(motor->m_conf->si_motor_poles/2.0f)/gearing;//speed in m/s  alternative: motor->d_speed_soll;//
-    float F_air       = speed*speed*motor->p_air_ro *motor->p_c_wl*motor->p_As;
-    float F_roll      =motor->p_c_rr*motor->p_weight* 9.81* cos(slope);
-	
-    float F_incline   = 0.000;//- (bike_weight+rider_weight)*9.81*(sin(slope*3.141592/400.00)); also no need to feed forward bc it's fixed 
-	float F_bearings= (motor->p_weight)*motor->p_c_bw*9.81*(speed/motor->p_wheel_radius)/motor->p_r_bearings*motor->p_k_v_bw* cos(slope);
-	//F_res calculation	
-
-	float F_combine = F_air + F_roll + F_incline + F_bearings; //resistance force
-	
-	
-
-	#define SCALE_INT 10000000.0f   // Float version for scaling
-	//#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
-
-	motor->omega_fp = (int_fast64_t)(motor->m_speed_est_fast_corrected * SCALE_INT);
-
-	UTILS_LP_FAST_I64(&motor->omega_filtered_fp, motor->omega_fp, 30);
-
-	// --- Calculate motor torque ---
-	motor->te_calculated = motor->m_motor_state.iq * motor->p_kT +
-						(motor->m_motor_state.iq * motor->m_motor_state.id) *
-						(motor->p_ld - motor->p_lq);
+	motor->tp_observed = Tp_hat;
 
 	motor->d_f_motor = (motor->te_calculated) / motor->p_wheel_radius * motor->p_mech_gearing;
 
-	// --- 2-State Kalman Filter: [omega, T_ext] ---
-	// Constants
-	const float R_meas = 0.1;//0.3f * 0.3f;  // Measurement noise (rad/s)^2
-	const float Q_text = 0.05f;           // Process noise on T_ext
-	const float J = motor->p_J;
-	const float Te = motor->te_calculated;
 
-	// --- Prediction ---
-	motor->omega_kf += (Te + motor->t_ext_kf) * dt / J;
-
-	// Covariance prediction (manually computed A * P * A^T + Q)
-	float P00 = motor->P_00 + dt / J * (motor->P_10 + motor->P_01)
-				+ (dt * dt / (J * J)) * motor->P_11;
-	float P01 = motor->P_01 + dt / J * motor->P_11;
-	float P10 = motor->P_10 + dt / J * motor->P_11;
-	float P11 = motor->P_11 + Q_text;
-
-	motor->P_00 = P00;
-	motor->P_01 = P01;
-	motor->P_10 = P10;
-	motor->P_11 = P11;
-
-	// --- Measurement update (z = measured omega) ---
-
-
-	
-	float z = (float)(motor->omega_filtered_fp) / SCALE_INT;  // Or m_speed_est_fast
-	float y = z - motor->omega_kf; // Innovation
-
-	//friction compensation
-	float Tc = -0.31f;//-1.77f;
-	float b = 0.000149291f;//-1.38e-4f;
-	float T_friction=Tc*((z > 0.0f) ? 1.0f : (z < 0.0f ? -1.0f : 0.0f)) + b * fabsf(z) ; // Friction torque
-	
-
-	float S = motor->P_00 + R_meas;
-	float K0 = motor->P_00 / S;
-	float K1 = motor->P_10 / S;
-
-	// State correction
-	motor->omega_kf += K0 * y;
-	motor->t_ext_kf += K1 * y;
-
-	// Covariance update
-	motor->P_00 -= K0 * motor->P_00;
-	motor->P_01 -= K0 * motor->P_01;
-	motor->P_10 -= K1 * motor->P_00;
-	motor->P_11 -= K1 * motor->P_01;
-
-	// --- Observer output (already filtered via Kalman) ---
-	motor->tp_observed = motor->t_ext_kf - T_friction;
 
 	// --- Acceleration for integration (still uses full force model) ---
-	motor->accel_ist = ((motor->tp_observed/(motor->p_wheel_radius) - F_combine ) * gearing * 0.0108f) * SCALE_INT;
+	motor->accel_ist = ((motor->tp_observed/(motor->p_wheel_radius)*gearing - (F_combine*SIGN(omega_hat)) )  ) * SCALE_INT/motor->p_weight; // m/s^2 scaled
+
+	
 
 	// --- Position integration (fixed-point) ---
 	motor->integrated_value = (int_fast64_t)(((motor->last_accel + motor->accel_ist) * (dt * SCALE_INT)) / (SCALE_INT * 2)) + motor->integrated_value;
-	if (motor->integrated_value < 0) {
-    motor->integrated_value = 0;
-	}
+	//if (motor->integrated_value < 0) {
+    //motor->integrated_value = 0;
+	//}
 	motor->last_accel = motor->accel_ist;
 	motor->d_speed_soll = (float)(motor->integrated_value / SCALE_INT);
 
@@ -665,7 +655,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	float T_res=F_combine*motor->p_wheel_radius/gearing;
 	
-	float i_res= -T_res/motor->p_kT;//motor->p_kT;
+	float i_res= -(T_res)/motor->p_kT;//motor->p_kT;
 	
 	//float lq= motor->m_conf->foc_motor_l+motor->m_conf->foc_motor_ld_lq_diff/2.0;
 	float i_res_out= i_res/(conf_now->lo_current_max * conf_now->l_current_max_scale);
@@ -900,4 +890,137 @@ void foc_precalc_values(motor_all_state_t *motor) {
 	motor->p_inv_ld_lq = (1.0 / motor->p_lq - 1.0 / motor->p_ld);
 	motor->p_v2_v3_inv_avg_half = (0.5 / motor->p_lq + 0.5 / motor->p_ld) * 0.9; // With the 0.9 we undo the adjustment from the detection
 	motor->m_observer_state.lambda_est = conf_now->foc_motor_flux_linkage;
+}
+
+
+static inline float sgn_db(float x, float dead) {
+    if (x >  dead) return  1.0f;
+    if (x < -dead) return -1.0f;
+    return 0.0f;
+}
+
+static inline float friction_T(float omega, float Tc, float b) {
+    // Coulomb + viscous with tiny deadband to avoid chattering
+    return (Tc*sgn_db(omega, 10.0f) + b *(omega)) ;
+}
+
+static inline float dTf_domega(float omega, float b) {
+    // derivative of b*|omega|; Coulomb derivative ~0 (a.e.)
+    return (fabsf(omega) < 1e-4f) ? 0.0f : b * (omega > 0.0f ? 1.0f : -1.0f);
+}
+
+inline void ekf3_step_simple(
+    motor_all_state_t *m,
+    float dt,
+    float Te,             // motor torque [Nm]
+    float theta_meas      // unwrapped mechanical angle [rad]
+) {
+    // ---- Unpack ----
+    float *x      = m->kalman_x;   // x = [theta, omega, T_p]
+    float (*P)[3] = m->kalman_P;
+    float (*Q)[3] = m->kalman_Q;
+    const float J = m->p_J;
+
+    if (dt <= 0.0f) return;
+
+    // ---- Friction: Coulomb + viscous (no smoothing) ----
+    // Tf(ω) = Tc*sgn(ω) + b*ω
+    // dTf/dω = b (except in tiny deadband where we set 0 to keep F well-behaved)
+    const float eps = 1e-4f;                 // small deadband [rad/s]
+    const float s   = sgn_db(x[1], eps);
+    const float Tf  = m->Tc * s + m->b * x[1];
+    const float dTf = (fabsf(x[1]) > eps) ? m->b : 0.0f;
+
+    // ---- Predict ----
+    const float invJ = 1.0f / J;
+    const float b_dt = dt * invJ;
+
+    const float th_n = x[0] + dt * x[1];
+    const float om_n = x[1] + b_dt * (Te + x[2] - Tf);
+    const float Tp_n = x[2];
+
+    x[0] = th_n;
+    x[1] = om_n;
+    x[2] = Tp_n;
+
+    // ---- Covariance predict with consistent F ----
+    // F = [1, dt, 0;
+    //      0, 1 - dt/J * dTf/dω, dt/J;
+    //      0, 0, 1]
+    const float a   = dt * invJ * dTf;
+    const float F00 = 1.0f, F01 = dt,    F02 = 0.0f;
+    const float F10 = 0.0f, F11 = 1.0f - a, F12 = b_dt;
+    const float F20 = 0.0f, F21 = 0.0f, F22 = 1.0f;
+
+    // FP = F*P
+    float FP00 = F00*P[0][0] + F01*P[1][0] + F02*P[2][0];
+    float FP01 = F00*P[0][1] + F01*P[1][1] + F02*P[2][1];
+    float FP02 = F00*P[0][2] + F01*P[1][2] + F02*P[2][2];
+
+    float FP10 = F10*P[0][0] + F11*P[1][0] + F12*P[2][0];
+    float FP11 = F10*P[0][1] + F11*P[1][1] + F12*P[2][1];
+    float FP12 = F10*P[0][2] + F11*P[1][2] + F12*P[2][2];
+
+    float FP20 = F20*P[0][0] + F21*P[1][0] + F22*P[2][0];
+    float FP21 = F20*P[0][1] + F21*P[1][1] + F22*P[2][1];
+    float FP22 = F20*P[0][2] + F21*P[1][2] + F22*P[2][2];
+
+    // P = FP*F' + Q
+    float P00 = FP00*F00 + FP01*F01 + FP02*F02 + Q[0][0];
+    float P01 = FP00*F10 + FP01*F11 + FP02*F12 + Q[0][1];
+    float P02 = FP00*F20 + FP01*F21 + FP02*F22 + Q[0][2];
+
+    float P10 = FP10*F00 + FP11*F01 + FP12*F02 + Q[1][0];
+    float P11 = FP10*F10 + FP11*F11 + FP12*F12 + Q[1][1];
+    float P12 = FP10*F20 + FP11*F21 + FP12*F22 + Q[1][2];
+
+    float P20 = FP20*F00 + FP21*F01 + FP22*F02 + Q[2][0];
+    float P21 = FP20*F10 + FP21*F11 + FP22*F12 + Q[2][1];
+    float P22 = FP20*F20 + FP21*F21 + FP22*F22 + Q[2][2];
+
+    P[0][0]=P00; P[0][1]=P01; P[0][2]=P02;
+    P[1][0]=P10; P[1][1]=P11; P[1][2]=P12;
+    P[2][0]=P20; P[2][1]=P21; P[2][2]=P22;
+
+    // ---- Angle update (H = [1 0 0]) ----
+    {
+        const float y    = theta_meas - x[0];
+        const float S    = P[0][0] + m->kalman_R;
+        const float invS = 1.0f / S;
+
+        float r0 = P[0][0], r1 = P[0][1], r2 = P[0][2];
+        float K0 = P[0][0] * invS;
+        float K1 = P[1][0] * invS;
+        float K2 = P[2][0] * invS;
+
+        x[0] += K0 * y;
+        x[1] += K1 * y;
+        x[2] += K2 * y;
+
+        P[0][0] -= K0 * r0;  P[0][1] -= K0 * r1;  P[0][2] -= K0 * r2;
+        P[1][0] -= K1 * r0;  P[1][1] -= K1 * r1;  P[1][2] -= K1 * r2;
+        P[2][0] -= K2 * r0;  P[2][1] -= K2 * r1;  P[2][2] -= K2 * r2;
+
+        // keep symmetry
+        P[1][0] = P[0][1];
+        P[2][0] = P[0][2];
+        P[2][1] = P[1][2];
+    }
+
+    // ---- Guards ----
+    const float Pmin = 1e-12f;
+    if (P[0][0] < Pmin) P[0][0] = Pmin;
+    if (P[1][1] < Pmin) P[1][1] = Pmin;
+    if (P[2][2] < Pmin) P[2][2] = Pmin;
+
+    // (optional) export for plots/FF
+    m->Tf_hat = Tf;
+}
+
+
+inline float Tf_smooth(float omega, float Tc, float B, float omega_s) {
+    // sign-preserving smoothing: ω / sqrt(ω² + ω_s²)
+    float denom = sqrtf(omega*omega + omega_s*omega_s);
+    float s = (denom > 0.0f) ? (omega / denom) : 0.0f;
+    return Tc * s + B * omega;
 }
