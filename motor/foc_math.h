@@ -347,6 +347,13 @@ typedef struct {
 	float fric_alpha;     // -
 	float fric_eps;       // rad/s   (sign smoothing epsilon)
 	float fric_delta;     // rad/s   (|w| smoothing)
+
+
+	// --- freewheel state ---
+	bool freewheel_active;
+	bool freewheel_enabled;
+	float fw_timer_s;
+	
 } motor_all_state_t;
 
 

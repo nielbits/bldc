@@ -386,7 +386,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_r_bearings=0.014f;
 	m_motor_1.p_k_v_bw= 0.00001f;
 
-	m_motor_1.fric_db_rad_s= 10.0f;
+	m_motor_1.fw_timer_s= 0.0f;
 
 	//neeeds to be corrected
 

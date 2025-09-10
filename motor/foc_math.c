@@ -628,7 +628,48 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->tp_observed = Tp_hat;
 
 	motor->d_f_motor = (motor->te_calculated) / motor->p_wheel_radius * motor->p_mech_gearing;
+	
+	//if (motor->freewheel_enabled) {
+	if (true) {
+		// Freewheeling logic
+		// If the motor is being back-driven by the rider, and the rider torque exceeds the motor torque by a certain threshold,
+		// then we disengage the motor (set iq to 0) and let it freewheel.
+		// The motor will re-engage when the rider torque drops below the motor torque by a certain hysteresis threshold,
+		// or if the rider applies a certain amount of positive torque (pedal push) to re-engage.
+		// === FREEWHEEL: engage/disengage using RPMs ===
+		// Wheel RPM (from virtual plant setpoint)
+		float wheel_erpm = motor->d_erpm_soll ;
 
+		// Crank/motor RPM from EKF
+		float motor_erpm = motor->ekf_rpm ;
+
+		// Slip on motor side: how much faster the wheel is than the motor
+		// (already both in RPM now, so direct compare)
+
+		
+		float slip_rpm = (wheel_erpm - motor_erpm)/ (motor->m_conf->si_motor_poles / 2.0f);
+
+		// thresholds (tune or move to config)
+		const float FW_SLIP_ON_RPM  = 30.0f;   // disengage if wheel outruns by >20 rpm
+		const float FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
+		const float FW_T_REENG      = 0.30f;   // Nm rider push to re-engage
+		const float FW_T_DISENG = -0.20f;
+		if (!motor->freewheel_active) {
+			if ((motor->tp_observed <= FW_T_DISENG)) {
+				motor->freewheel_active = true;
+				  //motor->fw_timer_s = 0.0f;
+			}
+		} else {
+			if (motor->tp_observed > FW_T_REENG && fabsf(slip_rpm)<FW_SLIP_REENG) {
+				  //&& fabsf(slip_rpm)<FW_SLIP_REENG) {
+				motor->freewheel_active = false;
+				  //motor->fw_timer_s = 0.0f;
+			}
+		}
+	}else
+	{
+		motor->freewheel_active = false;
+	}
 
 
 	// --- Acceleration for integration (still uses full force model) ---
@@ -674,11 +715,20 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	utils_truncate_number_abs(&output, 1.0);
 
 	// Integrator windup protection
-	motor->m_speed_i_term += error * conf_now->s_pid_ki * dt * (1.0 / 20.0);
-	utils_truncate_number_abs(&motor->m_speed_i_term, 1.0);
+// === FREEWHEEL: integrator handling
+	float i_inc = error * conf_now->s_pid_ki * dt * (1.0f / 20.0f);
+	bool wants_accel = (i_inc > 0.0f); // proxy for "controller wants to speed up"
 
-	if (conf_now->s_pid_ki < 1e-9) {
-		motor->m_speed_i_term = 0.0;
+	if (conf_now->s_pid_ki < 1e-9f) {
+		motor->m_speed_i_term = 0.0f;
+	} else {
+		if (motor->freewheel_active && wants_accel) {
+			// freeze or gently bleed the I-term while propulsion is blocked
+			motor->m_speed_i_term *= 0.98f; // small decay; tune as needed
+		} else {
+			motor->m_speed_i_term += i_inc;
+		}
+		utils_truncate_number_abs(&motor->m_speed_i_term, 1.0f);
 	}
 
 	// Optionally disable braking
@@ -691,8 +741,14 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 			output = 0.0;
 		}
 	}
+	
+	if (motor->freewheel_active) {
+    	output = 0.0f;  // no motor braking while freewheeling
+	}
 
 	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
+	
+
 }
 
 
