@@ -398,7 +398,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			buffer_append_float16(send_buffer, mcpwm_foc_get_erpm_soll(), 1e0, &ind);
 		}
 		if (mask & ((uint32_t)1 << 1)) {
-			buffer_append_float16(send_buffer, mcpwm_foc_get_tf(), 1e1, &ind);
+			buffer_append_float16(send_buffer,  mcpwm_foc_get_tf(), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 2)) {
 			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_motor_current(), 1e2, &ind);

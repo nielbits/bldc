@@ -379,12 +379,15 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_c_rr= 0.0025f; //rolling friction
 	m_motor_1.p_weight= 75.0f+8.1f;
 	m_motor_1.p_As= 0.509f; //section area
-	m_motor_1.p_c_air= 0.76f; //drag coefficient
+	m_motor_1.p_c_air= 0.76f; //air resistance coefficient
 	m_motor_1.p_c_bw=0.0015f;
-	m_motor_1.p_c_wl= 0.076f;//air resistance coefficient
+	//m_motor_1.p_c_wl= 0.0015;//0.76f;//air resistance coefficient
 	m_motor_1.p_wheel_radius= 0.3556f; //bike wheel radius;
 	m_motor_1.p_r_bearings=0.014f;
 	m_motor_1.p_k_v_bw= 0.00001f;
+
+	m_motor_1.fric_db_rad_s= 10.0f;
+
 	//neeeds to be corrected
 
 	if (m_motor_1.bigmotor){
@@ -395,6 +398,14 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	}
 	else
 	{
+		
+		m_motor_1.fric_B     = 4.59e-4f;
+		m_motor_1.fric_Tc    = 0.0f;
+		m_motor_1.fric_Ts    = 1.87147e-3f;
+		m_motor_1.fric_vs    = 2.538f;
+		m_motor_1.fric_alpha = 1.63704f;
+		m_motor_1.fric_eps   = 1.27f;    // ~ vs/2
+		m_motor_1.fric_delta = 0.127f;   // ~ 0.05*vs
 		m_motor_1.p_kT= (float)(1.5f*0.00455f *7.0f);
 		m_motor_1.p_J= 0.0045f;
 		m_motor_1.p_mech_gearing=(200.0f/25.0f)*(70.0f/25.0f);

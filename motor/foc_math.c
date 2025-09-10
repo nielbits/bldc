@@ -544,19 +544,19 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 																	//if torque, motor to wheel * gearin, wheel to motor / gearin
 	float slope      = incline * 3.14159265359f / 180.0f;            // radians
 
-	// --- speed (fix: ERPM -> mech RPM -> rad/s -> m/s) ---
-	const float pole_pairs = motor->m_conf->si_motor_poles * 0.5f;   // poles -> pole-pairs
-	float rpm_m   = motor->m_speed_est_fast / pole_pairs;            // mech motor RPM
-	float rpm_w   = (rpm_m / gearing);    // wheel RPM (divide by Gm, multiply by Gbike)
-	float omega_w = rpm_w * (2.0f * 3.14159265359f / 60.0f);         // rad/s
-	float speed   = omega_w * motor->p_wheel_radius;                 // m/s  (kept name)
+		// --- speed (fix: ERPM -> mech RPM -> rad/s -> m/s) ---
+		//const float pole_pairs = motor->m_conf->si_motor_poles * 0.5f;   // poles -> pole-pairs
+		//float omega_m   = motor->m_speed_est_fast / pole_pairs;            // mech motor RPM
+		//float omega_w   = (rpm_m / gearing);    // wheel RPM (divide by Gm, multiply by Gbike)
+		//float speed=omega_w*motor->p_wheel_radius
+	float speed   = motor->d_speed_soll;                 // m/s  (kept name)
 
 	// --- forces (same variable names, corrected formulas) ---
-	float F_air     = 0.5f * motor->p_air_ro * motor->p_c_wl * motor->p_As * speed * speed;          // 0.5 * rho * Cd * A * v^2
-	float F_roll    = motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope);                          // Crr * m g cos(theta)
+	float F_air     = 0.5f * motor->p_air_ro *0.9f*0.5f*speed*fabsf(speed);//* motor->p_c_air * motor->p_As * speed * speed*SIGN(speed);          // 0.5 * rho * Cd * A * v^2
+	float F_roll    = smooth_force((motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope)),speed,0.1f);                          // Crr * m g cos(theta)
 	float F_incline = motor->p_weight * 9.81f * sinf(slope);                                          // m g sin(theta)  (set incline=0 if you want it off)
 	// simple viscous bearing drag in force-domain (N·s/m). keep name, fix units:
-	float F_bearings = (motor->p_c_bw * motor->p_k_v_bw) * speed;
+	float F_bearings = smooth_force(((motor->p_c_bw * motor->p_k_v_bw) * speed),speed,0.1f);
 
 	// F_res calculation
 	float F_combine = F_air + F_roll + F_incline + F_bearings; // resistance force
@@ -579,7 +579,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 
 	//const float T_fric_ff = Tf_smooth(motor->kalman_x[1], -0.31f, 0.000149291f, 3.9f);
-	motor->unwrapped_theta_filtered=UTILS_LP_FAST(motor->unwrapped_theta_filtered,motor->unwrapped_theta,0.5);
+	motor->unwrapped_theta_filtered=UTILS_LP_FAST(motor->unwrapped_theta_filtered,motor->unwrapped_theta,0.05f);
 	ekf3_step_simple(
     motor,
     dt,
@@ -632,7 +632,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 
 	// --- Acceleration for integration (still uses full force model) ---
-	motor->accel_ist = ((motor->tp_observed/(motor->p_wheel_radius)*gearing - (F_combine*SIGN(omega_hat)) )  ) * SCALE_INT/motor->p_weight; // m/s^2 scaled
+	motor->accel_ist = ((motor->tp_observed/(motor->p_wheel_radius)*gearing - (F_combine) )  ) * SCALE_INT/motor->p_weight; // m/s^2 scaled
 
 	
 
@@ -893,22 +893,18 @@ void foc_precalc_values(motor_all_state_t *motor) {
 }
 
 
-static inline float sgn_db(float x, float dead) {
+inline float sgn_db(float x, float dead) {
     if (x >  dead) return  1.0f;
     if (x < -dead) return -1.0f;
     return 0.0f;
 }
 
-static inline float friction_T(float omega, float Tc, float b) {
-    // Coulomb + viscous with tiny deadband to avoid chattering
-    return (Tc*sgn_db(omega, 10.0f) + b *(omega)) ;
-}
 
 static inline float dTf_domega(float omega, float b) {
     // derivative of b*|omega|; Coulomb derivative ~0 (a.e.)
     return (fabsf(omega) < 1e-4f) ? 0.0f : b * (omega > 0.0f ? 1.0f : -1.0f);
 }
-
+// --- EKF step: predict + angle update -------------------------------------
 inline void ekf3_step_simple(
     motor_all_state_t *m,
     float dt,
@@ -923,15 +919,11 @@ inline void ekf3_step_simple(
 
     if (dt <= 0.0f) return;
 
-    // ---- Friction: Coulomb + viscous (no smoothing) ----
-    // Tf(ω) = Tc*sgn(ω) + b*ω
-    // dTf/dω = b (except in tiny deadband where we set 0 to keep F well-behaved)
-    const float eps = 1e-4f;                 // small deadband [rad/s]
-    const float s   = sgn_db(x[1], eps);
-    const float Tf  = m->Tc * s + m->b * x[1];
-    const float dTf = (fabsf(x[1]) > eps) ? m->b : 0.0f;
+    // ---- Friction: Stribeck (smooth, consistent Jacobian) ----
+    float Tf = 0.0f, dTf = 0.0f;
+    stribeck_tf_and_dtf(m, x[1], &Tf, &dTf);
 
-    // ---- Predict ----
+    // ---- Predict (nonlinear) ----
     const float invJ = 1.0f / J;
     const float b_dt = dt * invJ;
 
@@ -948,9 +940,9 @@ inline void ekf3_step_simple(
     //      0, 1 - dt/J * dTf/dω, dt/J;
     //      0, 0, 1]
     const float a   = dt * invJ * dTf;
-    const float F00 = 1.0f, F01 = dt,    F02 = 0.0f;
+    const float F00 = 1.0f, F01 = dt,      F02 = 0.0f;
     const float F10 = 0.0f, F11 = 1.0f - a, F12 = b_dt;
-    const float F20 = 0.0f, F21 = 0.0f, F22 = 1.0f;
+    const float F20 = 0.0f, F21 = 0.0f,    F22 = 1.0f;
 
     // FP = F*P
     float FP00 = F00*P[0][0] + F01*P[1][0] + F02*P[2][0];
@@ -988,10 +980,10 @@ inline void ekf3_step_simple(
         const float S    = P[0][0] + m->kalman_R;
         const float invS = 1.0f / S;
 
-        float r0 = P[0][0], r1 = P[0][1], r2 = P[0][2];
-        float K0 = P[0][0] * invS;
-        float K1 = P[1][0] * invS;
-        float K2 = P[2][0] * invS;
+        const float r0 = P[0][0], r1 = P[0][1], r2 = P[0][2];
+        const float K0 = P[0][0] * invS;
+        const float K1 = P[1][0] * invS;
+        const float K2 = P[2][0] * invS;
 
         x[0] += K0 * y;
         x[1] += K1 * y;
@@ -1013,14 +1005,58 @@ inline void ekf3_step_simple(
     if (P[1][1] < Pmin) P[1][1] = Pmin;
     if (P[2][2] < Pmin) P[2][2] = Pmin;
 
-    // (optional) export for plots/FF
+    // export (optional)
     m->Tf_hat = Tf;
 }
 
+static inline void stribeck_tf_and_dtf(
+    const motor_all_state_t *m,
+    float omega,
+    float *Tf_out,
+    float *dTf_out
+) {
+    const float B      = m->fric_B;        // Nm·s/rad
+    const float Tc     = m->fric_Tc;       // Nm
+    const float Ts     = m->fric_Ts;       // Nm
+    const float vs     = m->fric_vs;       // rad/s
+    const float alpha  = m->fric_alpha;    // -
+    const float eps    = m->fric_eps;      // rad/s   (for tanh)
+    const float delta  = m->fric_delta;    // rad/s   (for |w| smoothing)
 
-inline float Tf_smooth(float omega, float Tc, float B, float omega_s) {
-    // sign-preserving smoothing: ω / sqrt(ω² + ω_s²)
-    float denom = sqrtf(omega*omega + omega_s*omega_s);
-    float s = (denom > 0.0f) ? (omega / denom) : 0.0f;
-    return Tc * s + B * omega;
+    // Smooth sign and smooth absolute value
+    const float s      = tanhf(omega / eps);           // in (-1,1)
+    const float sech2  = 1.0f - s * s;                 // d/dx tanh = sech^2 = 1 - tanh^2
+    const float dsdw   = (1.0f / eps) * sech2;         // ds/dω
+
+    const float wabs   = sqrtf(omega*omega + delta*delta); // ≥ delta
+    // exp term e = exp( - ( (|w|/vs)^alpha ) )
+    const float r      = wabs / vs;
+    const float z      = powf(r, alpha);
+    const float e      = expf(-z);
+
+    // Amplitude A(w) = Tc + (Ts - Tc)*e
+    const float A      = Tc + (Ts - Tc) * e;
+
+    // dA/dω = (Ts - Tc) * de/dω
+    // de/dω = -e * (alpha / vs^alpha) * wabs^(alpha-2) * omega
+    //       = -e * alpha * omega * (wabs)^(alpha-2) / (vs^alpha)
+    float dAdw = 0.0f;
+    {
+        const float vs_a   = powf(vs, alpha);
+        const float w_pow  = powf(wabs, alpha - 2.0f);   // safe via delta
+        dAdw = (Ts - Tc) * (-e) * alpha * omega * (w_pow / vs_a);
+    }
+
+    // Tf = B*omega + A(w)*s
+    const float Tf  = B * omega + A * s;
+
+    // dTf/dω = B + dA/dω * s + A * ds/dω
+    const float dTf = B + dAdw * s + A * dsdw;
+
+    if (Tf_out)  { *Tf_out  = Tf; }
+    if (dTf_out) { *dTf_out = dTf; }
+}
+
+float smooth_force(float mag, float v, float v_eps) {
+    return mag * tanhf(v / v_eps); // smoothly goes negative if v<0
 }

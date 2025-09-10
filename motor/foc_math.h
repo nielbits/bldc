@@ -336,8 +336,17 @@ typedef struct {
 	float Tc;
 	float b;
 	float Tf_hat;
-
+	float fric_db_rad_s;
 	bool bigmotor;
+
+	// stribeck friction model parameters
+	float fric_B;         // Nm·s/rad
+	float fric_Tc;        // Nm
+	float fric_Ts;        // Nm
+	float fric_vs;        // rad/s
+	float fric_alpha;     // -
+	float fric_eps;       // rad/s   (sign smoothing epsilon)
+	float fric_delta;     // rad/s   (|w| smoothing)
 } motor_all_state_t;
 
 
@@ -359,6 +368,7 @@ float band_pass_filter(float input,float centerFreq,   float bandwidth, float sa
 static inline float friction_T(float omega, float Tc, float b);
 static inline float sgn_db(float x, float dead);
 static inline float dTf_domega(float omega, float b);
+static inline void stribeck_tf_and_dtf(    const motor_all_state_t *m,    float omega,    float *Tf_out,    float *dTf_out);
 inline float Tf_smooth(float omega, float Tc, float B, float omega_s);
 inline void ekf3_step_simple(
     motor_all_state_t *m,
@@ -366,4 +376,6 @@ inline void ekf3_step_simple(
     float Te,
     float theta_meas
 );
+
+float smooth_force(float mag, float v, float v_eps);
 #endif /* FOC_MATH_H_ */
