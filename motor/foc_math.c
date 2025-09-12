@@ -577,8 +577,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 						
 	//Kalman Filter 3 Steps implemented
 
-
-	//const float T_fric_ff = Tf_smooth(motor->kalman_x[1], -0.31f, 0.000149291f, 3.9f);
 	motor->unwrapped_theta_filtered=UTILS_LP_FAST(motor->unwrapped_theta_filtered,motor->unwrapped_theta,0.05f);
 	ekf3_step_simple(
     motor,
@@ -629,46 +627,73 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	motor->d_f_motor = (motor->te_calculated) / motor->p_wheel_radius * motor->p_mech_gearing;
 	
-	//if (motor->freewheel_enabled) {
-	if (true) {
-		// Freewheeling logic
-		// If the motor is being back-driven by the rider, and the rider torque exceeds the motor torque by a certain threshold,
-		// then we disengage the motor (set iq to 0) and let it freewheel.
-		// The motor will re-engage when the rider torque drops below the motor torque by a certain hysteresis threshold,
-		// or if the rider applies a certain amount of positive torque (pedal push) to re-engage.
-		// === FREEWHEEL: engage/disengage using RPMs ===
-		// Wheel RPM (from virtual plant setpoint)
-		float wheel_erpm = motor->d_erpm_soll ;
 
-		// Crank/motor RPM from EKF
-		float motor_erpm = motor->ekf_rpm ;
+	float wheel_erpm = motor->d_erpm_soll ;
 
-		// Slip on motor side: how much faster the wheel is than the motor
-		// (already both in RPM now, so direct compare)
+	// Crank/motor RPM from EKF
+	float motor_erpm = motor->ekf_rpm ;
 
-		
-		float slip_rpm = (wheel_erpm - motor_erpm)/ (motor->m_conf->si_motor_poles / 2.0f);
+	// Slip on motor side: how much faster the wheel is than the motor
+	// (already both in RPM now, so direct compare)
 
-		// thresholds (tune or move to config)
-		const float FW_SLIP_ON_RPM  = 30.0f;   // disengage if wheel outruns by >20 rpm
-		const float FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
-		const float FW_T_REENG      = 0.30f;   // Nm rider push to re-engage
-		const float FW_T_DISENG = -0.20f;
+	
+	float slip_rpm = (wheel_erpm - motor_erpm)/ (motor->m_conf->si_motor_poles / 2.0f);
+
+
+	// Freewheeling logic
+	// If the motor is being back-driven by the rider, and the rider torque exceeds the motor torque by a certain threshold,
+	// then we disengage the motor (set iq to 0) and let it freewheel.
+	// The motor will re-engage when the rider torque drops below the motor torque by a certain hysteresis threshold,
+	// or if the rider applies a certain amount of positive torque (pedal push) to re-engage.
+	// === FREEWHEEL: engage/disengage using RPMs ===
+	// Wheel RPM (from virtual plant setpoint)
+
+	// thresholds (tune or move to config)
+	float FW_SLIP_ON_RPM,FW_SLIP_REENG,FW_T_DISENG,FW_T_REENG,FW_T_DISENG_FORCED; 
+	FW_SLIP_ON_RPM =30.0f; // disengage if wheel outruns by >20 rpm
+	FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
+	FW_T_REENG      = 0.30f;   // Nm rider push to re-engage
+	FW_T_DISENG = -0.20f;
+
+	if (fabsf(slip_rpm)>1000.0f && rpm<100.0f && motor->tp_observed<0.0f && motor->forced_freewheel==false){
+		motor->forced_freewheel=true;
+		motor->m_speed_i_term     = 0.0f;
+    	motor->m_speed_prev_error = 0.0f;
+    	motor->m_speed_d_filter   = 0.0f;
+		motor->m_speed_pid_set_rpm=motor->ekf_rpm;
+		error=0.0f;
+		p_term=0.0f;
+		d_term=0.0f;
+		//output will be set to 0 below
+	}
+
+	if (motor->freewheel_enabled || motor->forced_freewheel) {
+
+		if (motor->ekf_rpm<300){
+			FW_T_REENG=0.1f;
+		}
+		else if (motor->forced_freewheel)
+		{
+			FW_T_REENG=0.6f;
+		}	
+		else{
+			FW_T_REENG=0.3f;
+		}
+
 		if (!motor->freewheel_active) {
-			if ((motor->tp_observed <= FW_T_DISENG)) {
+			if ((motor->tp_observed <= FW_T_DISENG)||( motor->forced_freewheel)) {
 				motor->freewheel_active = true;
-				  //motor->fw_timer_s = 0.0f;
 			}
 		} else {
 			if (motor->tp_observed > FW_T_REENG && fabsf(slip_rpm)<FW_SLIP_REENG) {
-				  //&& fabsf(slip_rpm)<FW_SLIP_REENG) {
 				motor->freewheel_active = false;
-				  //motor->fw_timer_s = 0.0f;
+				motor->forced_freewheel= false;
 			}
 		}
 	}else
 	{
 		motor->freewheel_active = false;
+		motor->forced_freewheel= false;
 	}
 
 
@@ -710,6 +735,9 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->d_f_combine = F_combine;
 	motor->d_f_bearings = F_bearings;
 	motor->d_i_res= i_res;
+
+
+
 	// Calculate output
 	float output = p_term + motor->m_speed_i_term + d_term;
 	utils_truncate_number_abs(&output, 1.0);
@@ -744,6 +772,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	
 	if (motor->freewheel_active) {
     	output = 0.0f;  // no motor braking while freewheeling
+		motor->c_v_q_ff=0.0f;
 	}
 
 	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;

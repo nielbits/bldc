@@ -350,10 +350,11 @@ typedef struct {
 
 
 	// --- freewheel state ---
+	bool forced_freewheel;
 	bool freewheel_active;
 	bool freewheel_enabled;
 	float fw_timer_s;
-	
+
 } motor_all_state_t;
 
 

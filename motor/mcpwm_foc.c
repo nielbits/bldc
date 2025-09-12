@@ -387,7 +387,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_k_v_bw= 0.00001f;
 
 	m_motor_1.fw_timer_s= 0.0f;
-
+	m_motor_1.forced_freewheel= false;
 	//neeeds to be corrected
 
 	if (m_motor_1.bigmotor){
@@ -4524,7 +4524,9 @@ static void control_current(motor_all_state_t *motor, float dt) {
 	state_m->vd -= dec_vd; //Negative sign as in the PMSM equations
 	state_m->vq += dec_vq + dec_bemf;
 
+
 	state_m->vq += motor->c_v_q_ff;
+
 
 	// Calculate the max length of the voltage space vector without overmodulation.
 	// Is simply 1/sqrt(3) * v_bus. See https://microchipdeveloper.com/mct5001:start. Adds margin with max_duty.
@@ -4547,11 +4549,15 @@ static void control_current(motor_all_state_t *motor, float dt) {
 	//    voltage_normalize = 1/(2/3*V_bus)
 	// This includes overmodulation and therefore cannot be made in any direction.
 	// Note that this scaling is different from max_v_mag, which is without over modulation.
+
+
+	
 	const float voltage_normalize = 1.5 / state_m->v_bus;
 	state_m->mod_d = state_m->vd * voltage_normalize;
 	state_m->mod_q = state_m->vq * voltage_normalize;
 	UTILS_NAN_ZERO(state_m->mod_q_filter);
 	UTILS_LP_FAST(state_m->mod_q_filter, state_m->mod_q, 0.2);
+
 
 	// TODO: Have a look at this?
 #ifdef HW_HAS_INPUT_CURRENT_SENSOR
@@ -4568,11 +4574,17 @@ static void control_current(motor_all_state_t *motor, float dt) {
 	state_m->mod_alpha_raw = c * state_m->mod_d - s * state_m->mod_q;
 	state_m->mod_beta_raw  = c * state_m->mod_q + s * state_m->mod_d;
 
+	if (motor->forced_freewheel) {
+		state_m->vd_int = 0.0f;
+		state_m->vq_int = 0.0f;
+	}
 	update_valpha_vbeta(motor, state_m->mod_alpha_raw, state_m->mod_beta_raw);
 
 	// Dead time compensated values for vd and vq. Note that these are not used to control the switching times.
 	state_m->vd = c * motor->m_motor_state.v_alpha + s * motor->m_motor_state.v_beta;
 	state_m->vq = c * motor->m_motor_state.v_beta  - s * motor->m_motor_state.v_alpha;
+
+	
 
 	mc_audio_state *audio = &motor->m_audio;
 	switch (audio->mode) {
@@ -4940,6 +4952,7 @@ static void update_valpha_vbeta(motor_all_state_t *motor, float mod_alpha, float
 	mod_alpha -= mod_alpha_comp;
 	mod_beta -= mod_beta_comp;
 
+
 	state_m->va = Va;
 	state_m->vb = Vb;
 	state_m->vc = Vc;
@@ -4981,6 +4994,10 @@ static void update_valpha_vbeta(motor_all_state_t *motor, float mod_alpha, float
 	mod_alpha = state_m->mod_alpha_filter;
 	mod_beta = state_m->mod_beta_filter;
 
+	if (motor->forced_freewheel) {
+		mod_alpha = 0.0f;
+		mod_beta = 0.0f;
+	}
 	if (motor->m_state == MC_STATE_RUNNING) {
 #ifdef HW_HAS_PHASE_FILTERS
 		if (conf_now->foc_phase_filter_enable && abs_rpm < conf_now->foc_phase_filter_max_erpm) {
