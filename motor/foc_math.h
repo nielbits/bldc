@@ -333,8 +333,6 @@ typedef struct {
 	float unwrapped_theta; // Mechanical angle in radians
 	float unwrapped_theta_filtered; // Mechanical angle in radians
 	float ekf_rpm;
-	float Tc;
-	float b;
 	float Tf_hat;
 	float fric_db_rad_s;
 	bool bigmotor;
@@ -354,6 +352,38 @@ typedef struct {
 	bool freewheel_active;
 	bool freewheel_enabled;
 	float fw_timer_s;
+
+
+	//position setpoint for cascade control.
+	float model_pos_set_model;
+	float model_pos_i_term;
+	float model_pos_prev_error;
+	float model_pos_prev_proc;
+	float model_pos_d_filter;
+	float model_pos_dt_int;
+	float last_tp;
+	
+	//erpm simulation for frequency response test.
+
+	float simulated_erpm;
+	float erpm_time;
+
+	//EXTENDED STATE OBSERVER (ESO) for ADRC
+	float omegadot_hat;
+	float omega_hat_z1;
+	float tp_pred_z1;
+	float te_applied_prev;
+	float dres_hat;
+	float tp_residual_int;
+	// TE_CONTROLLER!!!!! 
+
+	// --- minimal new fields (add to your motor struct) ---
+	float Jvirt_p;        // desired virtual inertia at pedals [kg·m^2]
+	float te_pedal_z1;    // prev-sample motor torque reflected to pedals [Nm] (for Method B)
+	float omegadot_p;     // (optional) last computed pedal acceleration [rad/s^2] for logging
+	float Te_set;         // (optional) motor torque setpoint [Nm] for logging
+	float te_meas_z1_m;  // previous-sample motor torque [Nm] (for Method B)
+	float iq_set_ff;      // (optional) current feedforward [A] for logging
 
 } motor_all_state_t;
 

@@ -456,7 +456,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		}
 		if (mask & ((uint32_t)1 << 18)) {
 			if (mc_interface_get_motor_thread() == 2) {
-				buffer_append_float16(send_buffer, NTC_TEMP_MOS1_M2(), 1e1, &ind);
+				buffer_append_float16(send_buffer, NTC_TEMP_MOS1_M2(), 1e1, &ind);//62 63 64 65 66 67
 				buffer_append_float16(send_buffer, NTC_TEMP_MOS2_M2(), 1e1, &ind);
 				buffer_append_float16(send_buffer, NTC_TEMP_MOS3_M2(), 1e1, &ind);
 			} else {
@@ -466,12 +466,13 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			}
 		}
 		if (mask & ((uint32_t)1 << 19)) {
-			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vd(), 1e3, &ind);
+			//buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vd(), 1e3, &ind); // 68 69 70 71
+			buffer_append_float32(send_buffer, mcpwm_foc_get_uw_angle_sp(), 1e4, &ind); // 68 69 70 71
 		}
 		if (mask & ((uint32_t)1 << 20)) {
-			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vq(), 1e3, &ind);
+			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vq(), 1e3, &ind);// 72 73 74 75
 		}
-		if (mask & ((uint32_t)1 << 21)) {
+		if (mask & ((uint32_t)1 << 21)) { //76
 			uint8_t status = 0;
 			status |= timeout_has_timeout();
 			status |= timeout_kill_sw_active() << 1;

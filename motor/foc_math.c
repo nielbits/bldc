@@ -489,12 +489,37 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	mc_configuration *conf_now = motor->m_conf;
 	float p_term;
 	float d_term;
+	float p_term_pos;
+	float d_term_pos;
+	float pos_error;
+	float d_term_proc_pos;
 
+	//First treat position eror
+	float pos_kp = conf_now->p_pid_kp;
+	float pos_ki = conf_now->p_pid_ki;
+	float pos_kd = conf_now->p_pid_kd;
+	float pos_kd_proc = conf_now->p_pid_kd_proc;
+
+
+
+
+
+	//ADD GEAR CHANGE LOGIC HERE -> stop control and adapt setpoints to gear ratio for pos control
 	// PID is off. Return.
 	if (motor->m_control_mode != CONTROL_MODE_SPEED) {
-		motor->m_speed_i_term = 0.0;
-		motor->m_speed_prev_error = 0.0;
-		motor->m_speed_d_filter = 0.0;
+		motor->m_speed_i_term = 0.0f;
+		motor->m_speed_prev_error = 0.0f;
+		motor->m_speed_d_filter = 0.0f;
+		motor->kalman_x[0] =encoder_read_deg()*(M_PI / 180.0f);
+		motor->kalman_x[1] =0.0f;
+		motor->kalman_x[2] = 0.0f;
+		motor->model_pos_i_term = 0.0f;
+		motor->integrated_value= 0.0f;
+		motor->unwrapped_theta=0.0f;
+		motor->unwrapped_theta_filtered=0.0f;
+		motor->model_pos_set_model=0.0f;
+		motor->model_pos_d_filter=0.0f;
+
 		return;
 	}
 
@@ -544,15 +569,14 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 																	//if torque, motor to wheel * gearin, wheel to motor / gearin
 	float slope      = incline * 3.14159265359f / 180.0f;            // radians
 
-		// --- speed (fix: ERPM -> mech RPM -> rad/s -> m/s) ---
-		//const float pole_pairs = motor->m_conf->si_motor_poles * 0.5f;   // poles -> pole-pairs
-		//float omega_m   = motor->m_speed_est_fast / pole_pairs;            // mech motor RPM
-		//float omega_w   = (rpm_m / gearing);    // wheel RPM (divide by Gm, multiply by Gbike)
-		//float speed=omega_w*motor->p_wheel_radius
-	float speed   = motor->d_speed_soll;                 // m/s  (kept name)
+
+	float speed= motor->kalman_x[1]*motor->p_wheel_radius/gearing;
 
 	// --- forces (same variable names, corrected formulas) ---
-	float F_air     = 0.5f * motor->p_air_ro *0.9f*0.5f*speed*fabsf(speed);//* motor->p_c_air * motor->p_As * speed * speed*SIGN(speed);          // 0.5 * rho * Cd * A * v^2
+	float k_area= 0.14f;
+	float height = 1.75f;
+	float Area_s= k_area*height*height;	//calculate section area
+	float F_air     = 0.5f * motor->p_air_ro *motor->p_c_air*Area_s*speed*fabsf(speed);// 0.5 * rho * Cd * A * v^2
 	float F_roll    = smooth_force((motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope)),speed,0.1f);                          // Crr * m g cos(theta)
 	float F_incline = motor->p_weight * 9.81f * sinf(slope);                                          // m g sin(theta)  (set incline=0 if you want it off)
 	// simple viscous bearing drag in force-domain (N·s/m). keep name, fix units:
@@ -561,10 +585,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// F_res calculation
 	float F_combine = F_air + F_roll + F_incline + F_bearings; // resistance force
 
-	
-
 	#define SCALE_INT 10000000.0f   // Float version for scaling
-	//#define OBS_GAIN_FP 5000000000LL    // Observer gain (e.g. 0.5 scaled to 1e8)
 
 	motor->omega_fp = (int_fast64_t)(motor->m_speed_est_fast_corrected * SCALE_INT);
 
@@ -576,6 +597,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 						
 	//Kalman Filter 3 Steps implemented
+	motor->last_tp=motor->kalman_x[2];
 
 	motor->unwrapped_theta_filtered=UTILS_LP_FAST(motor->unwrapped_theta_filtered,motor->unwrapped_theta,0.05f);
 	ekf3_step_simple(
@@ -585,22 +607,21 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     motor->unwrapped_theta // rad (your unwrapped mech angle)
 	);
 
+		
+	
 	// Use EKF outputs
 	const float theta_hat = motor->kalman_x[0];
 	const float omega_hat = motor->kalman_x[1];
 	const float Tp_hat    = motor->kalman_x[2];
 
+
 	motor->ekf_rpm= omega_hat * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
 
-	//float error = motor->m_speed_pid_set_rpm - rpm;
+
+
+	//float error = motor->m_speed_pid_set_rpm - rpm; //this was removed to activate position control
 	//use the internal speed_soll directly as reference(no exchange to matlab needed, 40x faster)
 	float error;
-
-
-	error = motor->d_erpm_soll - motor->ekf_rpm;
-	
-
-
 
 	// Too low RPM set. Reset state, release motor and return.
 	if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
@@ -610,24 +631,17 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		return;
 	}
 
-	// Compute parameters
-	p_term = error * conf_now->s_pid_kp * (1.0 / 20.0);
-	d_term = (error - motor->m_speed_prev_error) * (conf_now->s_pid_kd / dt) * (1.0 / 20.0);
-
-	// Filter D
-	UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
-	d_term = motor->m_speed_d_filter;
-
-	// Store previous error
-	motor->m_speed_prev_error = error;
-	// Keep your original semantics for tp_observed:
-
-
+	
 	motor->tp_observed = Tp_hat;
 
 	motor->d_f_motor = (motor->te_calculated) / motor->p_wheel_radius * motor->p_mech_gearing;
 	
+	//motor->simulated_erpm = 360.0f*motor->erpm_time + sin(motor->erpm_time/0.5f)*600.0f;
 
+	//if (motor->simulated_erpm >9000.0f){
+	//	motor->simulated_erpm=9000.0f + sin(motor->erpm_time/0.5f)*800.0f;
+	//}
+	//motor->erpm_time+=dt;
 	float wheel_erpm = motor->d_erpm_soll ;
 
 	// Crank/motor RPM from EKF
@@ -654,18 +668,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
 	FW_T_REENG      = 0.30f;   // Nm rider push to re-engage
 	FW_T_DISENG = -0.20f;
-
-	if (fabsf(slip_rpm)>1000.0f && rpm<100.0f && motor->tp_observed<0.0f && motor->forced_freewheel==false){
-		motor->forced_freewheel=true;
-		motor->m_speed_i_term     = 0.0f;
-    	motor->m_speed_prev_error = 0.0f;
-    	motor->m_speed_d_filter   = 0.0f;
-		motor->m_speed_pid_set_rpm=motor->ekf_rpm;
-		error=0.0f;
-		p_term=0.0f;
-		d_term=0.0f;
-		//output will be set to 0 below
-	}
 
 	if (motor->freewheel_enabled || motor->forced_freewheel) {
 
@@ -709,41 +711,98 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	//}
 	motor->last_accel = motor->accel_ist;
 	motor->d_speed_soll = (float)(motor->integrated_value / SCALE_INT);
-
+	motor->d_speed_soll =speed;
 
 	//speed setpoint calculation
 
 	float v = (float)motor->integrated_value / SCALE_INT; // linear speed in m/s
 	float omega_mech = v *  (gearing) / motor->p_wheel_radius;  // rad/s
+	
+	//should I also multiply by gear ratio here??? it seems no.
+
+	motor->model_pos_set_model = motor->model_pos_set_model + omega_mech * dt; // rad, motor shaft
 	motor->d_erpm_soll = omega_mech  * 9.54929 * (motor->m_conf->si_motor_poles/2.0f);
 
-	// i_res calculation
+	pos_error=  motor->model_pos_set_model - motor->unwrapped_theta_filtered ; //desired position in rad, motor shaft
+	p_term_pos = pos_error * pos_kp;
+	motor->model_pos_i_term += pos_error * (pos_ki * dt);
+
+	motor->model_pos_dt_int += dt;
+	if (error == motor->model_pos_prev_error) {
+		d_term_pos = 0.0;
+	} else {
+		d_term_pos = (pos_error - motor->model_pos_prev_error) * (pos_kd *pos_kd_proc/ motor->model_pos_dt_int);
+		motor->m_pos_dt_int = 0.0;
+	}
+	// Filter D
+	UTILS_LP_FAST(motor->model_pos_d_filter, d_term_pos, conf_now->p_pid_kd_filter);
+	d_term_pos = motor->model_pos_d_filter;
+
+
+	motor->model_pos_prev_error = pos_error;
+
+
+	utils_truncate_number_abs((float*)&motor->model_pos_i_term, 1.0f - fabsf(p_term_pos));//windup protection
+	//end pos control	
+
+	float pos_output = p_term_pos + motor->model_pos_i_term ;
+	utils_truncate_number(&pos_output, -1.0f, 1.0f);
+	float speed_set_rpm = pos_output * conf_now->l_max_erpm;
+	//end pos control
+
+	//error = speed_set_rpm - rpm;
+
+
+	error = motor->m_speed_pid_set_rpm - motor->ekf_rpm; //original speed control without pos control and using kalman filter.
+
+	p_term = error * conf_now->s_pid_kp * (1.0 / 20.0);
+	d_term = (error - motor->m_speed_prev_error) * (conf_now->s_pid_kd / dt) * (1.0 / 20.0);
+
+	// Filter D
+	UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
+	d_term = motor->m_speed_d_filter;
+
+	// Store previous error
+	motor->m_speed_prev_error = error;
+
+
+	// T_res calculation
 
 	float T_res=F_combine*motor->p_wheel_radius/gearing;
-	
-	float i_res= -(T_res)/motor->p_kT;//motor->p_kT;
-	
-	//float lq= motor->m_conf->foc_motor_l+motor->m_conf->foc_motor_ld_lq_diff/2.0;
-	float i_res_out= i_res/(conf_now->lo_current_max * conf_now->l_current_max_scale);
+
+	// ---------------- TORQUE FEEDFORWARD (ALL MOTOR DOMAIN, Method B, no prediction) ----------------
+
+	float Te_ff = Tp_hat - T_res + motor->Tf_hat; //(G * motor->Jvirt_p - (Jm / G)) * omegadot_p + Tf_m;
+
+	// Store outputs
+	motor->Te_set    = Te_ff;         // Te* (FF-only for now)
+	motor->iq_set_ff = Te_ff / motor->p_kT;    // current FF [A]
 
 
-	motor->c_v_q_ff= i_res_out*motor->m_res_est; //+ motor->m_speed_est_fast*lq*i_res_out; 
+
+
+	float iq_ff      = motor->iq_set_ff;  // from Te_ff above
+	float iq_ff_norm = iq_ff / (conf_now->lo_current_max * conf_now->l_current_max_scale);
+
+
+	motor->c_v_q_ff= iq_ff_norm*motor->m_res_est; //+ motor->m_speed_est_fast*lq*i_res_out; 
 
 	// Other motor variables remain unchanged
 	motor->d_speed = motor->m_speed_est_fast*motor->p_wheel_radius/(motor->m_conf->si_motor_poles)/gearing;//speed in m/s;
 	motor->d_f_air = F_air;
 	motor->d_f_combine = F_combine;
 	motor->d_f_bearings = F_bearings;
-	motor->d_i_res= i_res;
+	// For visibility (optional telemetry)
+	motor->d_i_res = -iq_ff;          // store FF current (A)
 
 
 
 	// Calculate output
-	float output = p_term + motor->m_speed_i_term + d_term;
+	float output = p_term + motor->m_speed_i_term + d_term + iq_ff_norm + p_term_pos + motor->model_pos_i_term;// + motor->model_pos_d_filter; 
 	utils_truncate_number_abs(&output, 1.0);
 
 	// Integrator windup protection
-// === FREEWHEEL: integrator handling
+   // === FREEWHEEL: integrator handling
 	float i_inc = error * conf_now->s_pid_ki * dt * (1.0f / 20.0f);
 	bool wants_accel = (i_inc > 0.0f); // proxy for "controller wants to speed up"
 

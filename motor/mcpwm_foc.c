@@ -389,11 +389,38 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.fw_timer_s= 0.0f;
 	m_motor_1.forced_freewheel= false;
 	//neeeds to be corrected
+	m_motor_1.erpm_time=0.0f;
+	m_motor_1.simulated_erpm=0.0f;
+
+	m_motor_1.dres_hat=0.0f;
+	m_motor_1.omegadot_hat=0.0f;
+	m_motor_1.omega_hat_z1=0.0f;
+	m_motor_1.tp_pred_z1=0.0f;
+	m_motor_1.te_applied_prev=0.0f;
+	m_motor_1.Jvirt_p= m_motor_1.p_weight*m_motor_1.p_wheel_radius*m_motor_1.p_wheel_radius; // desired virtual inertia at pedals [kg·m^2]
+	m_motor_1.te_meas_z1_m=0.0f;
+
+
+	m_motor_1.model_pos_set_model=0.0f;
+	m_motor_1.model_pos_i_term=0.0f;
+	m_motor_1.model_pos_prev_error=0.0f;
+	m_motor_1.model_pos_prev_proc=0.0f;
+	m_motor_1.model_pos_dt_int =0.0f;
 
 	if (m_motor_1.bigmotor){
-		m_motor_1.p_J= 18.2f;
+
+		m_motor_1.fric_B     = 1.41e-3f;
+		m_motor_1.fric_Tc    = 1.0e-3f;
+		m_motor_1.fric_Ts    = 4.10e-2f;
+		m_motor_1.fric_vs    = 8.07f;
+		m_motor_1.fric_alpha = 2.659f;
+		m_motor_1.fric_eps   = 4.03f;    // ~ vs/2
+		m_motor_1.fric_delta = 0.0403f;   // ~ 0.05*vs
+
+
+		m_motor_1.p_J= 1.9059f;//18.2/9.54f=;
 		m_motor_1.p_kT= (float)(1.5f*0.01927f *23.0f);
-		m_motor_1.p_mech_gearing=(240.0f/90.0f);// (200.0f/25.0f)*(70.0f/25.0f) small bike;//(240.0f/90.0f) for big bike;//mechanical gearing from motor to crank = 240/90
+		m_motor_1.p_mech_gearing=(240.0f/90.0f);
 
 	}
 	else
@@ -430,7 +457,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.kalman_x[0] = m_motor_1.unwrapped_theta;     // rad
 	m_motor_1.kalman_x[1] = 0.0f;                          // rad/s
 	m_motor_1.kalman_x[2] = 0.0f;                          // Nm
-
+	
 
 	if (m_motor_1.bigmotor)
 	{
@@ -442,9 +469,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 		// Process noise Q (tunable; T_p as random walk a bit larger)
 		m_motor_1.kalman_Q[0][0] = 1e-6f;  m_motor_1.kalman_Q[0][1] = 0.0f;   m_motor_1.kalman_Q[0][2] = 0.0f;
 		m_motor_1.kalman_Q[1][0] = 0.0f;   m_motor_1.kalman_Q[1][1] = 2e-3f;  m_motor_1.kalman_Q[1][2] = 0.0f;
-		m_motor_1.kalman_Q[2][0] = 0.0f;   m_motor_1.kalman_Q[2][1] = 0.0f;   m_motor_1.kalman_Q[2][2] = 2e-5f;
-		m_motor_1.Tc =5.1e-5;
-		m_motor_1.b=1.44e-7;
+		m_motor_1.kalman_Q[2][0] = 0.0f;   m_motor_1.kalman_Q[2][1] = 0.0f;   m_motor_1.kalman_Q[2][2] = 0.1f;
+
 
 	}
 	else{
@@ -457,8 +483,6 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 		m_motor_1.kalman_Q[0][0] = 1e-6f;  m_motor_1.kalman_Q[0][1] = 0.0f;   m_motor_1.kalman_Q[0][2] = 0.0f;
 		m_motor_1.kalman_Q[1][0] = 0.0f;   m_motor_1.kalman_Q[1][1] = 2e-3f;  m_motor_1.kalman_Q[1][2] = 0.0f;
 		m_motor_1.kalman_Q[2][0] = 0.0f;   m_motor_1.kalman_Q[2][1] = 0.0f;   m_motor_1.kalman_Q[2][2] = 2e-5f;
-		m_motor_1.Tc =	-0.31f;
-		m_motor_1.b =	0.000149291f;
 	}
 	/*/ Covariance P (diagonal, fairly generous to let the filter settle)
 	
@@ -5296,8 +5320,9 @@ float mcpwm_foc_get_f_combine(void){
 float mcpwm_foc_get_tf(void){
 	return get_motor_now()->Tf_hat;
 }
-
-
+float mcpwm_foc_get_uw_angle_sp(void){
+	return get_motor_now()->model_pos_set_model;
+}
 float calculate_crossover_freq(float T1, float T2) {
     return 1.0f / (2.0f * M_PI * sqrtf(T1 * T2));
 }

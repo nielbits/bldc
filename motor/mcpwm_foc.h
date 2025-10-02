@@ -155,6 +155,7 @@ float mcpwm_foc_get_erpm_soll(void);
 float mcpwm_foc_get_uw_theta(void);
 float mcpwm_foc_get_kalman_omega(void);
 float mcpwm_foc_get_tp_observed(void);
+float mcpwm_foc_get_uw_angle_sp(void);
 // Functions where the motor can be selected
 float mcpwm_foc_get_gear_ratio(void);
 float mcpwm_foc_get_tot_current_motor(bool is_second_motor);
