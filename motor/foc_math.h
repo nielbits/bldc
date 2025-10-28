@@ -292,49 +292,16 @@ typedef struct {
 	float p_J;
 
 
-
-	//TP observer calculations
-
+	//Tp observer calculations
 	float tp_observed;
-	float tp_observed_2;
 	float te_calculated;
-
-	// Kalman state variables
-	float omega_kf;       // Estimated speed
-	float domega_kf;      // Estimated acceleration
-	float t_ext_kf;		 // external torque
-	float pll_speed_filtered; //previously filtered speed
-
-
-	//
 
 	int_fast64_t omega_fp;              // scaled rad/s
 	int_fast64_t omega_filtered_fp;     // filtered scaled speed
 	
-	// Covariance matrix
-	float P_00;
-	float P_01;
-	float P_10;
-	float P_11;
 
 
-	// --- Kalman Filter State for [theta, omega, T_p] ---
-	float kalman_x[3];              // [theta (rad), omega (rad/s), T_p (Nm)]
-	float kalman_P[3][3];           // Covariance matrix
-	float kalman_Q[3][3];           // Process noise covariance
-	float kalman_R;                 // Measurement noise variance
-	float kalman_R_omega;
-
-	// --- Angle Unwrapping using encoder_read_deg()
-	float kalman_last_angle_rad;          // Last raw mechanical angle in degrees
-	float kalman_last_delta_rad;          // Last raw mechanical angle in degrees
-	int32_t kalman_rev_counter;     // Mechanical revolution counter
-	float kalman_fine_rad;          // Fine angle in [0, 2π) radians
-	float unwrapped_theta; // Mechanical angle in radians
-	float unwrapped_theta_filtered; // Mechanical angle in radians
-	float ekf_rpm;
 	float Tf_hat;
-	float fric_db_rad_s;
 	bool bigmotor;
 
 	// stribeck friction model parameters
@@ -363,27 +330,49 @@ typedef struct {
 	float model_pos_dt_int;
 	float last_tp;
 	
+	float unwrapped_theta;
+	float unwrapped_theta_filtered;
+	float last_angle_rad;
+	float last_delta_rad;
 	//erpm simulation for frequency response test.
 
 	float simulated_erpm;
 	float erpm_time;
 
-	//EXTENDED STATE OBSERVER (ESO) for ADRC
-	float omegadot_hat;
-	float omega_hat_z1;
-	float tp_pred_z1;
-	float te_applied_prev;
-	float dres_hat;
-	float tp_residual_int;
-	// TE_CONTROLLER!!!!! 
 
-	// --- minimal new fields (add to your motor struct) ---
-	float Jvirt_p;        // desired virtual inertia at pedals [kg·m^2]
-	float te_pedal_z1;    // prev-sample motor torque reflected to pedals [Nm] (for Method B)
-	float omegadot_p;     // (optional) last computed pedal acceleration [rad/s^2] for logging
+	float leso_th;    // theta_hat [rad]
+	float leso_om;    // omega_hat [rad/s]
+	float leso_z;     // disturbance acceleration z_hat [rad/s^2]
+
+	// Te_feed_forward
 	float Te_set;         // (optional) motor torque setpoint [Nm] for logging
-	float te_meas_z1_m;  // previous-sample motor torque [Nm] (for Method B)
-	float iq_set_ff;      // (optional) current feedforward [A] for logging
+	float iq_set_ff;      // (optional) current feedforward [A]
+
+
+	// LESO outputs
+	float Text_ext_hat;    // [Nm] instantaneous external torque estimate
+	float Text_ext_hat_f;  // [Nm] LPF'd external torque estimate
+
+
+	//kalman removed previously
+
+	// --- Kalman Filter State for [theta, omega, T_p] ---
+	float kalman_x[3];              // [theta (rad), omega (rad/s), T_p (Nm)]
+	float kalman_P[3][3];           // Covariance matrix
+	float kalman_Q[3][3];           // Process noise covariance
+	float kalman_R;                 // Measurement noise variance
+	float kalman_R_omega;
+
+
+		// --- Angle Unwrapping using encoder_read_deg()
+	float kalman_last_angle_rad;          // Last raw mechanical angle in degrees
+	float kalman_last_delta_rad;          // Last raw mechanical angle in degrees
+	int32_t kalman_rev_counter;     // Mechanical revolution counter
+	float kalman_fine_rad;          // Fine angle in [0, 2π) radians
+	float ekf_rpm;
+
+	float fric_db_rad_s;
+
 
 } motor_all_state_t;
 

@@ -366,9 +366,9 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_hall_dt_diff_last = 1.0;
 	m_motor_1.m_hall_dt_diff_now = 1.0;
 	m_motor_1.m_ang_hall_int_prev = -1;
-	//m_motor_1.hp_firstCall=1;
 
-	m_motor_1.bigmotor=false;
+
+
 
 	//HERE HERE HERE
 	m_motor_1.last_accel = 0.0f;
@@ -392,14 +392,6 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.erpm_time=0.0f;
 	m_motor_1.simulated_erpm=0.0f;
 
-	m_motor_1.dres_hat=0.0f;
-	m_motor_1.omegadot_hat=0.0f;
-	m_motor_1.omega_hat_z1=0.0f;
-	m_motor_1.tp_pred_z1=0.0f;
-	m_motor_1.te_applied_prev=0.0f;
-	m_motor_1.Jvirt_p= m_motor_1.p_weight*m_motor_1.p_wheel_radius*m_motor_1.p_wheel_radius; // desired virtual inertia at pedals [kg·m^2]
-	m_motor_1.te_meas_z1_m=0.0f;
-
 
 	m_motor_1.model_pos_set_model=0.0f;
 	m_motor_1.model_pos_i_term=0.0f;
@@ -407,18 +399,58 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.model_pos_prev_proc=0.0f;
 	m_motor_1.model_pos_dt_int =0.0f;
 
+	m_motor_1.leso_th = 0.0f;
+	m_motor_1.leso_om = 0.0f;
+	m_motor_1.leso_z  = 0.0f;
+	m_motor_1.Text_ext_hat   = 0.0f;
+	m_motor_1.Text_ext_hat_f = 0.0f;
+	// missing initializations
+	// if still needed; pick a real value later
+	m_motor_1.freewheel_active = false;
+	m_motor_1.freewheel_enabled = false;  // or true, depending on design
+
+	//m_motor_1.model_pos_d_filter = 0.0f;
+	m_motor_1.last_tp = 0.0f;
+
+	m_motor_1.unwrapped_theta = 0.0f;
+	m_motor_1.unwrapped_theta_filtered = 0.0f;
+	m_motor_1.last_angle_rad = 0.0f;
+	m_motor_1.last_delta_rad = 0.0f;
+
+	m_motor_1.Tf_hat = 0.0f;
+
+	// only if these two are indeed members of m_motor_1 (not just locals):
+	m_motor_1.omega_fp = 0;
+	m_motor_1.omega_filtered_fp = 0;
+
+
+	m_motor_1.gear_ratio_bike =  2.575f; //default 2.575
+	m_motor_1.bigmotor=true;
+
 	if (m_motor_1.bigmotor){
 
-		m_motor_1.fric_B     = 1.41e-3f;
-		m_motor_1.fric_Tc    = 1.0e-3f;
-		m_motor_1.fric_Ts    = 4.10e-2f;
-		m_motor_1.fric_vs    = 8.07f;
-		m_motor_1.fric_alpha = 2.659f;
-		m_motor_1.fric_eps   = 4.03f;    // ~ vs/2
-		m_motor_1.fric_delta = 0.0403f;   // ~ 0.05*vs
+		/*Stribeck fit (torque units) with hybrid bins:
+		K2    (windage)       = 1.35255e-10   [Nm per speed_unit^2]
+		B     (viscous)       = 1.61828e-06   [Nm per speed_unit]
+		Tc    (dynamic level) = 0.0565328   [Nm]
+		Ts    (static peak)   = 0.0826993   [Nm]
+		vs    (Stribeck spd)  = 2432.3   [speed_unit]//11.07 in rad/s
+		alpha (shape)         = 3   [-]
+  		RMSE (hybrid bins)    = 0.0213521   [Nm]
+  		R^2  (hybrid bins)    = 0.07946
+		*/
+
+	
+		m_motor_1.fric_B     = 1.61e-6f;
+		m_motor_1.fric_Tc    = 5.65e-2f;
+		m_motor_1.fric_Ts    = 8.27e-2f;
+		m_motor_1.fric_vs    = 11.07f;
+		m_motor_1.fric_alpha = 3.0f;
+		m_motor_1.fric_eps   = 0.02f;    // ~ vs/2
+		m_motor_1.fric_delta = 0.001f;   // ~ 0.05*vs
 
 
-		m_motor_1.p_J= 1.9059f;//18.2/9.54f=;
+		m_motor_1.p_J= 0.0034f;//1.9059f;//18.2/9.54f;
 		m_motor_1.p_kT= (float)(1.5f*0.01927f *23.0f);
 		m_motor_1.p_mech_gearing=(240.0f/90.0f);
 
@@ -434,7 +466,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 		m_motor_1.fric_eps   = 1.27f;    // ~ vs/2
 		m_motor_1.fric_delta = 0.127f;   // ~ 0.05*vs
 		m_motor_1.p_kT= (float)(1.5f*0.00455f *7.0f);
-		m_motor_1.p_J= 0.0045f;
+		m_motor_1.p_J= 0.003379f;
 		m_motor_1.p_mech_gearing=(200.0f/25.0f)*(70.0f/25.0f);
 	}
 
@@ -445,8 +477,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	float angle_deg0 = encoder_read_deg();                 // deg
 	if (!isfinite(angle_deg0)) { angle_deg0 = 0.0f; }      // guard on very early boot
 	float angle_rad0 = angle_deg0 * (M_PI / 180.0f);       // rad
-
-	// Unwrap helpers
+		// Unwrap helpers
 	m_motor_1.kalman_last_angle_rad = angle_rad0;          // last raw
 	m_motor_1.kalman_last_delta_rad = 0.0f;
 	m_motor_1.kalman_rev_counter = 0;
@@ -456,9 +487,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	// State x = [theta, omega, T_p]
 	m_motor_1.kalman_x[0] = m_motor_1.unwrapped_theta;     // rad
 	m_motor_1.kalman_x[1] = 0.0f;                          // rad/s
-	m_motor_1.kalman_x[2] = 0.0f;                          // Nm
-	
-
+	m_motor_1.kalman_x[2] = 0.0f;       
 	if (m_motor_1.bigmotor)
 	{
     // Covariance P (diagonal, fairly generous to let the filter settle)
@@ -483,16 +512,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 		m_motor_1.kalman_Q[0][0] = 1e-6f;  m_motor_1.kalman_Q[0][1] = 0.0f;   m_motor_1.kalman_Q[0][2] = 0.0f;
 		m_motor_1.kalman_Q[1][0] = 0.0f;   m_motor_1.kalman_Q[1][1] = 2e-3f;  m_motor_1.kalman_Q[1][2] = 0.0f;
 		m_motor_1.kalman_Q[2][0] = 0.0f;   m_motor_1.kalman_Q[2][1] = 0.0f;   m_motor_1.kalman_Q[2][2] = 2e-5f;
-	}
-	/*/ Covariance P (diagonal, fairly generous to let the filter settle)
-	
-
-    */
-
-
-
-
-	// Measurement noise (variance!) for angle in rad^2.
+	}	// Measurement noise (variance!) for angle in rad^2.
 	// Example: 0.05 deg std -> variance = (0.05 * pi/180)^2
 	#define ENC_STD_DEG   0.05f            // your previous choice
 	
@@ -1268,7 +1288,7 @@ float mcpwm_foc_get_uw_theta(){
 }
 float mcpwm_foc_get_kalman_omega(void){
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor->kalman_x[1] * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
+	return motor->ekf_rpm;// motor->kalman_x[1] * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
 
 }
 float mcpwm_foc_get_tp_observed(void){
