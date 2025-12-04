@@ -290,6 +290,23 @@ typedef struct {
 	float p_k_v_bw;
 	float p_kT;
 	float p_J;
+	float p_k_area;
+	float p_height;
+
+
+	//adrc tunables
+	float p_fo_hz;      // = 40.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
+    float p_gz_hz;      // = 0.00f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
+    float p_fc_TLPF; 	  // = 200.0f;   
+	float p_adrc_scale; // =1.0f;
+	//control tunables
+	float p_kp_pos;
+	float p_ki_pos;
+	float p_kd_pos;
+
+	// --- freewheel state ---
+	bool forced_freewheel;
+	bool freewheel_enabled;
 
 
 	//Tp observer calculations
@@ -300,24 +317,13 @@ typedef struct {
 	int_fast64_t omega_filtered_fp;     // filtered scaled speed
 	
 
-
 	float Tf_hat;
 	bool bigmotor;
 
-	// stribeck friction model parameters
-	float fric_B;         // Nm·s/rad
-	float fric_Tc;        // Nm
-	float fric_Ts;        // Nm
-	float fric_vs;        // rad/s
-	float fric_alpha;     // -
-	float fric_eps;       // rad/s   (sign smoothing epsilon)
-	float fric_delta;     // rad/s   (|w| smoothing)
 
 
-	// --- freewheel state ---
-	bool forced_freewheel;
+
 	bool freewheel_active;
-	bool freewheel_enabled;
 	float fw_timer_s;
 
 
@@ -353,7 +359,6 @@ typedef struct {
 	float Text_ext_hat;    // [Nm] instantaneous external torque estimate
 	float Text_ext_hat_f;  // [Nm] LPF'd external torque estimate
 
-
 	//kalman removed previously
 
 	// --- Kalman Filter State for [theta, omega, T_p] ---
@@ -372,6 +377,9 @@ typedef struct {
 	float ekf_rpm;
 
 	float fric_db_rad_s;
+
+	int param_index;
+	float param_value;
 
 
 } motor_all_state_t;

@@ -409,12 +409,21 @@ void foc_run_pid_control_pos(bool index_found, float dt, motor_all_state_t *moto
 	}
 
 	error *= error_sign;
+	float kp, ki, kd, kd_proc;
+		
+	if (motor->p_kp_pos ==0){
+		kp = conf_now->p_pid_kp;
+		ki = conf_now->p_pid_ki;
+		kd = conf_now->p_pid_kd;
+		kd_proc = conf_now->p_pid_kd_proc;
+	}
+	else{
+		kp = conf_now->p_pid_kp;
+		ki = conf_now->p_pid_ki;
+		kd = conf_now->p_pid_kd;
+		kd_proc = conf_now->p_pid_kd_proc;
 
-	float kp = conf_now->p_pid_kp;
-	float ki = conf_now->p_pid_ki;
-	float kd = conf_now->p_pid_kd;
-	float kd_proc = conf_now->p_pid_kd_proc;
-
+	}
 	if (conf_now->p_pid_gain_dec_angle > 0.1) {
 		float min_error = conf_now->p_pid_gain_dec_angle / conf_now->p_pid_ang_div;
 		float error_abs = fabs(error);
@@ -502,17 +511,12 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 
 
-
-
 	//ADD GEAR CHANGE LOGIC HERE -> stop control and adapt setpoints to gear ratio for pos control
 	// PID is off. Return.
 	if (motor->m_control_mode != CONTROL_MODE_SPEED) {
 		motor->m_speed_i_term = 0.0f;
 		motor->m_speed_prev_error = 0.0f;
 		motor->m_speed_d_filter = 0.0f;
-		//motor->kalman_x[0] =encoder_read_deg()*(M_PI / 180.0f);
-		//motor->kalman_x[1] =0.0f;
-		//motor->kalman_x[2] = 0.0f;
 		motor->model_pos_i_term = 0.0f;
 		motor->integrated_value= 0.0f;
 		motor->unwrapped_theta=motor->model_pos_set_model;
@@ -543,7 +547,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		rpm =motor->ekf_rpm; //RADPS2RPM_f(motor->m_speed_est_faster);
 		break;
 	}
-
 	//start KF 2 state
 
 	float angle_deg_now = encoder_read_deg();
@@ -561,7 +564,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// Save delta for next iteration
 	motor->kalman_last_delta_rad = delta_rad;
 
-
 	// possibly changeable parameters
 	float gear_ratio = motor->gear_ratio_bike;
 	float incline    = 0.000f; // inclination angle, degrees
@@ -569,15 +571,12 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 																	//if torque, motor to wheel * gearin, wheel to motor / gearin
 	float slope      = incline * 3.14159265359f / 180.0f;            // radians
 
-
 	float speed=rpm/(9.54929f*(motor->m_conf->si_motor_poles/2))*motor->p_wheel_radius/gearing; 
 	
 	
 	// --- forces (same variable names, corrected formulas) ---
-	float k_area= 0.14f;
-	float height = 1.75f;
-	float Area_s= k_area*height*height;	//calculate section area
-	float F_air     = 0.5f * motor->p_air_ro *motor->p_c_air*Area_s*speed*fabsf(speed);// 0.5 * rho * Cd * A * v^2
+	float Area_s= motor->p_k_area*motor->p_height*motor->p_height;	//calculate section area
+	float F_air     = 0.5f * motor->p_air_ro *motor->p_c_air*Area_s*speed*fabsf(speed);
 	float F_roll    = smooth_force((motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope)),speed,0.1f);                          // Crr * m g cos(theta)
 	float F_incline = motor->p_weight * 9.81f * sinf(slope);                                          // m g sin(theta)  (set incline=0 if you want it off)
 	// simple viscous bearing drag in force-domain (N·s/m). keep name, fix units:
@@ -594,14 +593,11 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// --- Calculate motor torque ---
 	motor->te_calculated = motor->m_motor_state.iq * motor->p_kT + (motor->m_motor_state.iq * motor->m_motor_state.id) * (motor->p_ld - motor->p_lq);
-
-
 						
 	//Kalman Filter 3 Steps implemented
 	motor->last_tp=motor->kalman_x[2];
 
 	motor->unwrapped_theta_filtered=UTILS_LP_FAST(motor->unwrapped_theta_filtered,motor->unwrapped_theta,0.05f);
-
 
 	leso3_step(
     motor,
@@ -616,32 +612,18 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     motor->unwrapped_theta // rad (your unwrapped mech angle)
 	);
 
-		
-	
 	// Use EKF outputs
 
 	const float theta_hat = motor->kalman_x[0];
 	const float omega_hat = motor->kalman_x[1];
 	const float Tp_hat    = motor->kalman_x[2];
 
-
 	motor->ekf_rpm= omega_hat * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
-
-
 
 	//float error = motor->m_speed_pid_set_rpm - rpm; //this was removed to activate position control
 	//use the internal speed_soll directly as reference(no exchange to matlab needed, 40x faster)
 	float error;
 
-	// Too low RPM set. Reset state, release motor and return.
-	if (fabsf(motor->m_speed_pid_set_rpm) < conf_now->s_pid_min_erpm) {
-		motor->m_speed_i_term = 0.0;
-		motor->m_speed_prev_error = error;
-		motor->m_iq_set = 0.0;
-		return;
-	}
-
-	
 	motor->tp_observed = Tp_hat;
 
 	motor->d_f_motor = (motor->te_calculated) / motor->p_wheel_radius * motor->p_mech_gearing;
@@ -713,7 +695,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->accel_ist = ((motor->Text_ext_hat_f/(motor->p_wheel_radius)*gearing - (F_combine) )  ) * SCALE_INT/motor->p_weight; // m/s^2 scaled
 
 	
-
 	// --- Position integration (fixed-point) ---
 	motor->integrated_value = (int_fast64_t)(((motor->last_accel + motor->accel_ist) * (dt * SCALE_INT)) / (SCALE_INT * 2)) + motor->integrated_value;
 	//if (motor->integrated_value < 0) {
@@ -722,7 +703,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->last_accel = motor->accel_ist;
 	motor->d_speed_soll = speed;//(float)(motor->integrated_value / SCALE_INT);
 	
-
 	//speed setpoint calculation
 
 	float v = (float)motor->integrated_value / SCALE_INT; // linear speed in m/s
@@ -751,7 +731,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	motor->model_pos_prev_error = pos_error;
 
-
 	utils_truncate_number_abs((float*)&motor->model_pos_i_term, 1.0f - fabsf(p_term_pos));//windup protection
 	//end pos control	
 
@@ -761,7 +740,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	//end pos control
 
 	//error = speed_set_rpm - rpm;
-
 
 	error = motor->m_speed_pid_set_rpm - rpm;//motor->ekf_rpm; //original speed control without pos control and using kalman filter.
 
@@ -774,7 +752,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// Store previous error
 	motor->m_speed_prev_error = error;
-
 
 	// T_res calculation
 
@@ -1080,7 +1057,7 @@ inline void ekf3_step_simple(
 
     // ---- Friction: Stribeck (smooth, consistent Jacobian) ----
     float Tf = 0.0f, dTf = 0.0f;
-    stribeck_tf_and_dtf(m, x[1], &Tf, &dTf);
+
 
     // ---- Predict (nonlinear) ----
     const float invJ = 1.0f / J;
@@ -1168,54 +1145,6 @@ inline void ekf3_step_simple(
     m->Tf_hat = Tf;
 }
 
-static inline void stribeck_tf_and_dtf(
-    const motor_all_state_t *m,
-    float omega,
-    float *Tf_out,
-    float *dTf_out
-) {
-    const float B      = m->fric_B;        // Nm·s/rad
-    const float Tc     = m->fric_Tc;       // Nm
-    const float Ts     = m->fric_Ts;       // Nm
-    const float vs     = m->fric_vs;       // rad/s
-    const float alpha  = m->fric_alpha;    // -
-    const float eps    = m->fric_eps;      // rad/s   (for tanh)
-    const float delta  = m->fric_delta;    // rad/s   (for |w| smoothing)
-
-    // Smooth sign and smooth absolute value
-    const float s      = tanhf(omega / eps);           // in (-1,1)
-    const float sech2  = 1.0f - s * s;                 // d/dx tanh = sech^2 = 1 - tanh^2
-    const float dsdw   = (1.0f / eps) * sech2;         // ds/dω
-
-    const float wabs   = sqrtf(omega*omega + delta*delta); // ≥ delta
-    // exp term e = exp( - ( (|w|/vs)^alpha ) )
-    const float r      = wabs / vs;
-    const float z      = powf(r, alpha);
-    const float e      = expf(-z);
-
-    // Amplitude A(w) = Tc + (Ts - Tc)*e
-    const float A      = Tc + (Ts - Tc) * e;
-
-    // dA/dω = (Ts - Tc) * de/dω
-    // de/dω = -e * (alpha / vs^alpha) * wabs^(alpha-2) * omega
-    //       = -e * alpha * omega * (wabs)^(alpha-2) / (vs^alpha)
-    float dAdw = 0.0f;
-    {
-        const float vs_a   = powf(vs, alpha);
-        const float w_pow  = powf(wabs, alpha - 2.0f);   // safe via delta
-        dAdw = (Ts - Tc) * (-e) * alpha * omega * (w_pow / vs_a);
-    }
-
-    // Tf = B*omega + A(w)*s
-    const float Tf  = B * omega + A * s;
-
-    // dTf/dω = B + dA/dω * s + A * ds/dω
-    const float dTf = B + dAdw * s + A * dsdw;
-
-    if (Tf_out)  { *Tf_out  = Tf; }
-    if (dTf_out) { *dTf_out = dTf; }
-}
-
 float smooth_force(float mag, float v, float v_eps) {
     return mag * tanhf(v / v_eps); // smoothly goes negative if v<0
 }
@@ -1236,9 +1165,9 @@ inline void leso3_step(
     const float J = m->p_J; if (!(J > 0.0f)) return;
 
     // ---------- Tuning (linear ESO) ----------
-    const float fo_hz   = 40.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
-    const float gz_hz   = 0.00f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
-    const float fc_TLPF = 200.0f;          // LPF for output (control/display)//500Hz //40 Hz for small motor
+    const float fo_hz   = m->p_fo_hz;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
+    const float gz_hz   = m->p_gz_hz;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
+    const float fc_TLPF = m->p_fc_TLPF;          // LPF for output (control/display)//500Hz //40 Hz for small motor
     // ----------------------------------------
 
     // Gains from bandwidth: standard cubic (s+wo)^3

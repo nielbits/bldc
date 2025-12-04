@@ -69,6 +69,9 @@ mc_rpm_dep_struct mcpwm_get_rpm_dep(void);
 bool mcpwm_is_dccal_done(void);
 void mcpwm_switch_comm_mode(mc_comm_mode next);
 
+
+
+
 void drv8323s_dccal_on(void);
 void drv8323s_dccal_off(void);
 

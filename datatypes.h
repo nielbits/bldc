@@ -1096,6 +1096,9 @@ typedef enum {
 
 	COMM_SET_GEAR_RATIO						= 153,
 	//Placeholders for pinlock commands
+
+	COMM_CHOOSE_PARAMETER 				= 154,
+	COMM_SET_CHOSEN_PARAM				= 155,
 	//COMM_PINLOCK2							= 154,
 	//COMM_PINLOCK3							= 155,
 

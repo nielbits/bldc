@@ -437,13 +437,14 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);
 		}
 		if (mask & ((uint32_t)1 << 14)) {
-			buffer_append_int32(send_buffer, mc_interface_get_tachometer_abs_value(false), &ind);
+			buffer_append_int32(send_buffer, mcpwm_get_param_index(), &ind);//tachometerabsvalue
 		}
 		if (mask & ((uint32_t)1 << 15)) {
 			send_buffer[ind++] = mc_interface_get_fault();
 		}
 		if (mask & ((uint32_t)1 << 16)) {
 			buffer_append_float32(send_buffer, mcpwm_foc_get_i_res(), 1e6, &ind);
+			
 		}
 		if (mask & ((uint32_t)1 << 17)) {
 			uint8_t current_controller_id = app_get_configuration()->controller_id;
@@ -470,7 +471,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			buffer_append_float32(send_buffer, mcpwm_foc_get_uw_angle_sp(), 1e4, &ind); // 68 69 70 71
 		}
 		if (mask & ((uint32_t)1 << 20)) {
-			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vq(), 1e3, &ind);// 72 73 74 75
+			buffer_append_float32(send_buffer,mcpwm_get_param_from_index(), 1e3, &ind);// 72 73 74 75
 		}
 		if (mask & ((uint32_t)1 << 21)) { //76
 			uint8_t status = 0;
@@ -546,6 +547,21 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		timeout_reset();
 	} break;
 
+	case COMM_CHOOSE_PARAMETER: {
+		int32_t ind = 0;
+		int index=buffer_get_int32(data, &ind);
+		
+		mcpmw_set_param_index(index);
+
+		timeout_reset();
+	} break;
+
+	case COMM_SET_CHOSEN_PARAM: {
+		int32_t ind = 0;
+		float param=(float)buffer_get_int32(data, &ind) / 1000.0;
+		mcpwm_set_param_from_index(param);
+		timeout_reset();
+	} break;
 
 	case COMM_SET_MCCONF: {
 #ifndef	HW_MCCONF_READ_ONLY

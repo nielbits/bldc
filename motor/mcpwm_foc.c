@@ -381,13 +381,28 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_As= 0.509f; //section area
 	m_motor_1.p_c_air= 0.76f; //air resistance coefficient
 	m_motor_1.p_c_bw=0.0015f;
-	//m_motor_1.p_c_wl= 0.0015;//0.76f;//air resistance coefficient
+	m_motor_1.p_c_wl= 0.0015;//0.76f;//air resistance coefficient
 	m_motor_1.p_wheel_radius= 0.3556f; //bike wheel radius;
 	m_motor_1.p_r_bearings=0.014f;
 	m_motor_1.p_k_v_bw= 0.00001f;
+	m_motor_1.p_k_area =0.14f;
+	m_motor_1.p_height =1.75f;
+	m_motor_1.p_fo_hz=40.0f;      // = 40.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
+    m_motor_1.p_gz_hz=0.0f;      // = 0.00f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
+    m_motor_1.p_fc_TLPF= 200.f; 	  // = 200.0f;   
+	m_motor_1.p_adrc_scale= 1.0f; // 
+
+	m_motor_1.p_kp_pos =0.0f;
+	m_motor_1.p_ki_pos =0.0f;
+	m_motor_1.p_kd_pos =0.0f;
+
+	m_motor_1.forced_freewheel= false;
+	m_motor_1.freewheel_active = false;
+	m_motor_1.freewheel_enabled = false;  // or true, depending on design
+
 
 	m_motor_1.fw_timer_s= 0.0f;
-	m_motor_1.forced_freewheel= false;
+
 	//neeeds to be corrected
 	m_motor_1.erpm_time=0.0f;
 	m_motor_1.simulated_erpm=0.0f;
@@ -406,8 +421,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.Text_ext_hat_f = 0.0f;
 	// missing initializations
 	// if still needed; pick a real value later
-	m_motor_1.freewheel_active = false;
-	m_motor_1.freewheel_enabled = false;  // or true, depending on design
+
 
 	//m_motor_1.model_pos_d_filter = 0.0f;
 	m_motor_1.last_tp = 0.0f;
@@ -419,6 +433,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 
 	m_motor_1.Tf_hat = 0.0f;
 
+	
+
 	// only if these two are indeed members of m_motor_1 (not just locals):
 	m_motor_1.omega_fp = 0;
 	m_motor_1.omega_filtered_fp = 0;
@@ -427,28 +443,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.gear_ratio_bike =  2.575f; //default 2.575
 	m_motor_1.bigmotor=true;
 
+
 	if (m_motor_1.bigmotor){
-
-		/*Stribeck fit (torque units) with hybrid bins:
-		K2    (windage)       = 1.35255e-10   [Nm per speed_unit^2]
-		B     (viscous)       = 1.61828e-06   [Nm per speed_unit]
-		Tc    (dynamic level) = 0.0565328   [Nm]
-		Ts    (static peak)   = 0.0826993   [Nm]
-		vs    (Stribeck spd)  = 2432.3   [speed_unit]//11.07 in rad/s
-		alpha (shape)         = 3   [-]
-  		RMSE (hybrid bins)    = 0.0213521   [Nm]
-  		R^2  (hybrid bins)    = 0.07946
-		*/
-
-	
-		m_motor_1.fric_B     = 1.61e-6f;
-		m_motor_1.fric_Tc    = 5.65e-2f;
-		m_motor_1.fric_Ts    = 8.27e-2f;
-		m_motor_1.fric_vs    = 11.07f;
-		m_motor_1.fric_alpha = 3.0f;
-		m_motor_1.fric_eps   = 0.02f;    // ~ vs/2
-		m_motor_1.fric_delta = 0.001f;   // ~ 0.05*vs
-
 
 		m_motor_1.p_J= 0.0034f;//1.9059f;//18.2/9.54f;
 		m_motor_1.p_kT= (float)(1.5f*0.01927f *23.0f);
@@ -458,13 +454,6 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	else
 	{
 		
-		m_motor_1.fric_B     = 4.59e-4f;
-		m_motor_1.fric_Tc    = 0.0f;
-		m_motor_1.fric_Ts    = 1.87147e-3f;
-		m_motor_1.fric_vs    = 2.538f;
-		m_motor_1.fric_alpha = 1.63704f;
-		m_motor_1.fric_eps   = 1.27f;    // ~ vs/2
-		m_motor_1.fric_delta = 0.127f;   // ~ 0.05*vs
 		m_motor_1.p_kT= (float)(1.5f*0.00455f *7.0f);
 		m_motor_1.p_J= 0.003379f;
 		m_motor_1.p_mech_gearing=(200.0f/25.0f)*(70.0f/25.0f);
@@ -515,9 +504,18 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	}	// Measurement noise (variance!) for angle in rad^2.
 	// Example: 0.05 deg std -> variance = (0.05 * pi/180)^2
 	#define ENC_STD_DEG   0.05f            // your previous choice
+
+	
 	
 	const float enc_std_rad = ENC_STD_DEG * (float)M_PI / 180.0f;
 	m_motor_1.kalman_R = enc_std_rad * enc_std_rad;   // rad^2
+
+
+	//parameter changes during operation
+	m_motor_1.param_index=1;
+	m_motor_1.param_value=2.0f;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+
+
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
@@ -5347,3 +5345,127 @@ float calculate_crossover_freq(float T1, float T2) {
     return 1.0f / (2.0f * M_PI * sqrtf(T1 * T2));
 }
 
+//parameter change functions
+// Parameter index/value helpers.
+// These functions operate on the current motor_all_state_t returned by get_motor_now().
+// Index map (example):
+// 0: gear_ratio_bike
+// 1: p_air_ro
+// 2: p_c_rr
+// 3: p_weight
+// 4: p_As
+// 5: p_c_air
+// 6: p_c_bw
+// 7: p_wheel_radius
+// 8: p_r_bearings
+// 9: p_k_v_bw
+// 10: p_kT
+// 11: p_J
+// 12: p_mech_gearing
+// 13: fric_B
+// 14: fric_Tc
+// 15: fric_Ts
+// 16: fric_vs
+// 17: fric_alpha
+// 18: fric_eps
+// 19: fric_delta
+// 20: Tf_hat
+//
+// Adjust indices to your needs.
+
+void mcpmw_set_param_index(int index) {
+	get_motor_now()->param_index = index;
+}
+
+int mcpwm_get_param_index(void) {
+	return get_motor_now()->param_index;
+}
+
+// Read the field selected by param_index into motor->param_value.
+float mcpwm_get_param_from_index(void) {
+	volatile motor_all_state_t *m = (volatile motor_all_state_t*)get_motor_now();
+	int idx = m->param_index;
+	float v = 0.0f;
+
+	switch (idx) {
+	case 0:
+		// Do nothing, reserved.
+		v = 0.0f;
+		break;
+	case 1:  v = m->gear_ratio_bike; break;
+	case 2:  v = m->p_air_ro; break;
+	case 3:  v = m->p_c_rr; break;
+	case 4:  v = m->p_weight; break;
+	case 5:  v = m->p_As; break;
+	case 6:  v = m->p_c_air; break;
+	case 7:  v = m->p_c_bw; break;
+	case 8:  v = m->p_c_wl; break;
+	case 9:  v = m->p_wheel_radius; break;
+	case 10: v = m->p_r_bearings; break;
+	case 11: v = m->p_k_v_bw; break;
+	case 12: v = m->p_k_area; break;
+	case 13: v = m->p_height; break;
+	case 14: v = m->p_fo_hz; break;
+	case 15: v = m->p_gz_hz; break;
+	case 16: v = m->p_fc_TLPF; break;
+	case 17: v = m->p_adrc_scale; break;
+	case 18: v = m->p_kp_pos; break;
+	case 19: v = m->p_ki_pos; break;
+	case 20: v = m->p_kd_pos; break;
+	case 21: v = m->p_J; break;
+	case 22: v = m->p_kT; break;
+	case 23: v = m->p_mech_gearing; break;
+	case 24: v = (float)m->forced_freewheel; break;
+	case 25: v = (float)m->freewheel_enabled; break;
+	case 26: break;
+	default:
+		// unknown index -> leave as 0.0
+		v = 500.0f;
+		break;
+	}
+
+	return v;
+}
+	
+// Write motor->param_value into the field selected by motor->param_index.
+void mcpwm_set_param_from_index(float param) {
+	volatile motor_all_state_t *m = (volatile motor_all_state_t*)get_motor_now();
+	int idx = m->param_index;
+	m->param_value = param;
+	float v = m->param_value;
+
+	switch (idx) {
+	case 0:
+		// Do nothing, reserved.
+		break;
+	case 1:  m->gear_ratio_bike = v; break;
+	case 2:  m->p_air_ro = v; break;
+	case 3:  m->p_c_rr = v; break;
+	case 4:  m->p_weight = v; break;
+	case 5:  m->p_As = v; break;
+	case 6:  m->p_c_air = v; break;
+	case 7:  m->p_c_bw = v; break;
+	case 8:  m->p_c_wl = v; break;
+	case 9:  m->p_wheel_radius = v; break;
+	case 10: m->p_r_bearings = v; break;
+	case 11: m->p_k_v_bw = v; break;
+	case 12: m->p_k_area = v; break;
+	case 13: m->p_height = v; break;
+	case 14: m->p_fo_hz = v; break;
+	case 15: m->p_gz_hz = v; break;
+	case 16: m->p_fc_TLPF = v; break;
+	case 17: m->p_adrc_scale = v; break;
+	case 18: m->p_kp_pos = v; break;
+	case 19: m->p_ki_pos = v; break;
+	case 20: m->p_kd_pos = v; break;
+	case 21: m->p_J = v; break;
+	case 22: m->p_kT = v; break;
+	case 23: m->p_mech_gearing = v; break;
+	case 24: m->forced_freewheel = (bool)v; break;
+	case 25: m->freewheel_enabled = (bool)v; break;
+	case 26: break;
+	default:
+		// unknown index -> do nothing
+		break;
+	}
+}

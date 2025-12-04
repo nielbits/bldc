@@ -521,6 +521,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		motor->leso_om=(motor->m_speed_est_fast/(motor->m_conf->si_motor_poles / 2.0f));
 		return;
 	}
+	
 /* check open loop
 	if (conf_now->s_pid_ramp_erpms_s > 0.0) {
 		utils_step_towards((float*)&motor->m_speed_pid_set_rpm, motor->m_speed_command_rpm, conf_now->s_pid_ramp_erpms_s * dt);
@@ -607,7 +608,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     motor,
     dt,
     motor->te_calculated,          // motor torque [Nm] (applied/estimated)
-    motor->unwrapped_theta   );// unwrapped mechanical angle [rad]
+    motor->unwrapped_theta_filtered);// unwrapped mechanical angle [rad]
 	}
 	else{
 		motor->leso_th=motor->unwrapped_theta;
@@ -1093,8 +1094,8 @@ inline void leso3_step(
     const float J = m->p_J; if (!(J > 0.0f)) return;
 
     // ---------- Tuning (linear ESO) ----------
-    const float fo_hz   = 100.0f;          // observer bandwidth (try 10–18 Hz)
-    const float gz_hz   = 0.1f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
+    const float fo_hz   = 20.0f;          // observer bandwidth (try 10–18 Hz)
+    const float gz_hz   = 0.3f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
     const float fc_TLPF = 500.0f;          // LPF for output (control/display)
     // ----------------------------------------
 

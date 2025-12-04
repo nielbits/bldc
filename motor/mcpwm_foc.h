@@ -89,9 +89,6 @@ float mcpwm_foc_get_est_res(void);
 float mcpwm_foc_get_est_ind(void);
 
 
-
-
-
 // Additional functions for debugging
 
 float mcpwm_foc_get_speed(void);
@@ -99,6 +96,15 @@ float mcpwm_foc_get_f_air(void);
 float mcpwm_foc_get_f_combine(void);
 float mcpwm_foc_get_tf(void);
 float mcpwm_foc_get_i_res(void);
+
+
+//parameter change functions
+void mcpmw_set_param_index(int index);
+int  mcpwm_get_param_index(void);
+void mcpwm_set_param_from_index(float param);
+float mcpwm_get_param_from_index(void);
+
+
 
 //
 int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ratio, bool *inverted);
