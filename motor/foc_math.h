@@ -290,9 +290,10 @@ typedef struct {
 	float p_k_v_bw;
 	float p_kT;
 	float p_J;
+	float p_B;
 	float p_k_area;
 	float p_height;
-
+	float p_speed_limit_pos_control_activation;
 
 	//adrc tunables
 	float p_fo_hz;      // = 40.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
@@ -335,9 +336,12 @@ typedef struct {
 	float model_pos_d_filter;
 	float model_pos_dt_int;
 	float last_tp;
+	float last_rpm;
+	float rpm_inc_filter_th;
 	
 	float unwrapped_theta;
 	float unwrapped_theta_filtered;
+	float unwrapped_theta_filtered_prev;
 	float last_angle_rad;
 	float last_delta_rad;
 	//erpm simulation for frequency response test.
@@ -349,7 +353,10 @@ typedef struct {
 	float leso_th;    // theta_hat [rad]
 	float leso_om;    // omega_hat [rad/s]
 	float leso_z;     // disturbance acceleration z_hat [rad/s^2]
-
+	float leso_th_ref;
+	float leso_th_prev;   // init trapezoid memory
+    float leso_Te_prev;
+	float leso_om_fd;
 	// Te_feed_forward
 	float Te_set;         // (optional) motor torque setpoint [Nm] for logging
 	float iq_set_ff;      // (optional) current feedforward [A]
@@ -361,12 +368,6 @@ typedef struct {
 
 	//kalman removed previously
 
-	// --- Kalman Filter State for [theta, omega, T_p] ---
-	float kalman_x[3];              // [theta (rad), omega (rad/s), T_p (Nm)]
-	float kalman_P[3][3];           // Covariance matrix
-	float kalman_Q[3][3];           // Process noise covariance
-	float kalman_R;                 // Measurement noise variance
-	float kalman_R_omega;
 
 
 		// --- Angle Unwrapping using encoder_read_deg()
@@ -403,14 +404,8 @@ float band_pass_filter(float input,float centerFreq,   float bandwidth, float sa
 static inline float friction_T(float omega, float Tc, float b);
 static inline float sgn_db(float x, float dead);
 static inline float dTf_domega(float omega, float b);
-static inline void stribeck_tf_and_dtf(    const motor_all_state_t *m,    float omega,    float *Tf_out,    float *dTf_out);
-inline float Tf_smooth(float omega, float Tc, float B, float omega_s);
-inline void ekf3_step_simple(
-    motor_all_state_t *m,
-    float dt,
-    float Te,
-    float theta_meas
-);
+//static inline void stribeck_tf_and_dtf(    const motor_all_state_t *m,    float omega,    float *Tf_out,    float *dTf_out);
+//inline float Tf_smooth(float omega, float Tc, float B, float omega_s);
 
 float smooth_force(float mag, float v, float v_eps);
 #endif /* FOC_MATH_H_ */

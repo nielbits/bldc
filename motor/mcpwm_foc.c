@@ -377,7 +377,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	//parameter initialization
 	m_motor_1.p_air_ro=1.2f; //air density
 	m_motor_1.p_c_rr= 0.0025f; //rolling friction
-	m_motor_1.p_weight= 75.0f+8.1f;
+	m_motor_1.p_weight= 85.0f+12.0f;
 	m_motor_1.p_As= 0.509f; //section area
 	m_motor_1.p_c_air= 0.76f; //air resistance coefficient
 	m_motor_1.p_c_bw=0.0015f;
@@ -387,10 +387,11 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_k_v_bw= 0.00001f;
 	m_motor_1.p_k_area =0.14f;
 	m_motor_1.p_height =1.75f;
-	m_motor_1.p_fo_hz=40.0f;      // = 40.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
-    m_motor_1.p_gz_hz=0.0f;      // = 0.00f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
-    m_motor_1.p_fc_TLPF= 200.f; 	  // = 200.0f;   
+	m_motor_1.p_fo_hz=8.0f;      // = 40.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
+    m_motor_1.p_gz_hz=1.0f;      // = 0.00f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
+    m_motor_1.p_fc_TLPF= 100.f; 	  // = 200.0f;   
 	m_motor_1.p_adrc_scale= 1.0f; // 
+	m_motor_1.p_speed_limit_pos_control_activation =400.0f; // Speed limit for position control activation
 
 	m_motor_1.p_kp_pos =0.0f;
 	m_motor_1.p_ki_pos =0.0f;
@@ -417,6 +418,9 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.leso_th = 0.0f;
 	m_motor_1.leso_om = 0.0f;
 	m_motor_1.leso_z  = 0.0f;
+
+	m_motor_1.leso_Te_prev = 0.0f;
+
 	m_motor_1.Text_ext_hat   = 0.0f;
 	m_motor_1.Text_ext_hat_f = 0.0f;
 	// missing initializations
@@ -425,9 +429,11 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 
 	//m_motor_1.model_pos_d_filter = 0.0f;
 	m_motor_1.last_tp = 0.0f;
-
+	m_motor_1.last_rpm =0.0f;
+	m_motor_1.rpm_inc_filter_th=3.0f;
 	m_motor_1.unwrapped_theta = 0.0f;
 	m_motor_1.unwrapped_theta_filtered = 0.0f;
+	m_motor_1.unwrapped_theta_filtered_prev = 0.0f;
 	m_motor_1.last_angle_rad = 0.0f;
 	m_motor_1.last_delta_rad = 0.0f;
 
@@ -446,9 +452,10 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 
 	if (m_motor_1.bigmotor){
 
-		m_motor_1.p_J= 0.0034f;//1.9059f;//18.2/9.54f;
+		m_motor_1.p_J= 0.0730f;
 		m_motor_1.p_kT= (float)(1.5f*0.01927f *23.0f);
-		m_motor_1.p_mech_gearing=(240.0f/90.0f);
+		m_motor_1.p_mech_gearing=(240.0f/92.2f);
+		m_motor_1.p_B= 0.0576f;
 
 	}
 	else
@@ -467,49 +474,15 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	if (!isfinite(angle_deg0)) { angle_deg0 = 0.0f; }      // guard on very early boot
 	float angle_rad0 = angle_deg0 * (M_PI / 180.0f);       // rad
 		// Unwrap helpers
+	m_motor_1.leso_th_ref=angle_rad0;
+	m_motor_1.leso_th_prev = angle_rad0;
+	m_motor_1.leso_om_fd=0.0f;
+
 	m_motor_1.kalman_last_angle_rad = angle_rad0;          // last raw
 	m_motor_1.kalman_last_delta_rad = 0.0f;
 	m_motor_1.kalman_rev_counter = 0;
 	m_motor_1.kalman_fine_rad = fmodf(angle_rad0, 2.0f * (float)M_PI);
 	m_motor_1.unwrapped_theta = angle_rad0;                // start unwrapped here
-
-	// State x = [theta, omega, T_p]
-	m_motor_1.kalman_x[0] = m_motor_1.unwrapped_theta;     // rad
-	m_motor_1.kalman_x[1] = 0.0f;                          // rad/s
-	m_motor_1.kalman_x[2] = 0.0f;       
-	if (m_motor_1.bigmotor)
-	{
-    // Covariance P (diagonal, fairly generous to let the filter settle)
-		m_motor_1.kalman_P[0][0] = 1.0f;   m_motor_1.kalman_P[0][1] = 0.0f;   m_motor_1.kalman_P[0][2] = 0.0f;
-		m_motor_1.kalman_P[1][0] = 0.0f;   m_motor_1.kalman_P[1][1] = 10.0f;  m_motor_1.kalman_P[1][2] = 0.0f;
-		m_motor_1.kalman_P[2][0] = 0.0f;   m_motor_1.kalman_P[2][1] = 0.0f;   m_motor_1.kalman_P[2][2] = 5.0f;
-
-		// Process noise Q (tunable; T_p as random walk a bit larger)
-		m_motor_1.kalman_Q[0][0] = 1e-6f;  m_motor_1.kalman_Q[0][1] = 0.0f;   m_motor_1.kalman_Q[0][2] = 0.0f;
-		m_motor_1.kalman_Q[1][0] = 0.0f;   m_motor_1.kalman_Q[1][1] = 2e-3f;  m_motor_1.kalman_Q[1][2] = 0.0f;
-		m_motor_1.kalman_Q[2][0] = 0.0f;   m_motor_1.kalman_Q[2][1] = 0.0f;   m_motor_1.kalman_Q[2][2] = 0.1f;
-
-
-	}
-	else{
-		//small motor config
-		m_motor_1.kalman_P[0][0] = 1.0f;   m_motor_1.kalman_P[0][1] = 0.0f;   m_motor_1.kalman_P[0][2] = 0.0f;
-		m_motor_1.kalman_P[1][0] = 0.0f;   m_motor_1.kalman_P[1][1] = 10.0f;  m_motor_1.kalman_P[1][2] = 0.0f;
-		m_motor_1.kalman_P[2][0] = 0.0f;   m_motor_1.kalman_P[2][1] = 0.0f;   m_motor_1.kalman_P[2][2] = 5.0f;
-
-		// Process noise Q (tunable; T_p as random walk a bit larger)
-		m_motor_1.kalman_Q[0][0] = 1e-6f;  m_motor_1.kalman_Q[0][1] = 0.0f;   m_motor_1.kalman_Q[0][2] = 0.0f;
-		m_motor_1.kalman_Q[1][0] = 0.0f;   m_motor_1.kalman_Q[1][1] = 2e-3f;  m_motor_1.kalman_Q[1][2] = 0.0f;
-		m_motor_1.kalman_Q[2][0] = 0.0f;   m_motor_1.kalman_Q[2][1] = 0.0f;   m_motor_1.kalman_Q[2][2] = 2e-5f;
-	}	// Measurement noise (variance!) for angle in rad^2.
-	// Example: 0.05 deg std -> variance = (0.05 * pi/180)^2
-	#define ENC_STD_DEG   0.05f            // your previous choice
-
-	
-	
-	const float enc_std_rad = ENC_STD_DEG * (float)M_PI / 180.0f;
-	m_motor_1.kalman_R = enc_std_rad * enc_std_rad;   // rad^2
-
 
 	//parameter changes during operation
 	m_motor_1.param_index=1;
@@ -1286,12 +1259,12 @@ float mcpwm_foc_get_uw_theta(){
 }
 float mcpwm_foc_get_kalman_omega(void){
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor->ekf_rpm;// motor->kalman_x[1] * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
+	return motor->leso_om * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
 
 }
 float mcpwm_foc_get_tp_observed(void){
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor->tp_observed;
+	return motor->Text_ext_hat_f;
 }
 
 

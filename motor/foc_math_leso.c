@@ -665,7 +665,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
 	FW_T_REENG      = 0.30f;   // Nm rider push to re-engage
 	FW_T_DISENG = -0.20f;
-
+/*
 	if (motor->freewheel_enabled || motor->forced_freewheel) {
 
 		if (rpm<300){
@@ -694,7 +694,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		motor->freewheel_active = false;
 		motor->forced_freewheel= false;
 	}
-
+*/
 
 	// --- Acceleration for integration (still uses full force model) ---
 	motor->accel_ist = ((motor->Text_ext_hat_f/(motor->p_wheel_radius)*gearing - (F_combine) )  ) * SCALE_INT/motor->p_weight; // m/s^2 scaled

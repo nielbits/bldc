@@ -386,7 +386,7 @@ void foc_run_pid_control_pos(bool index_found, float dt, motor_all_state_t *moto
 
 	float p_term;
 	float d_term;
-	float d_term_proc;
+	float d_term_proc;	
 
 	// PID is off. Return.
 	if (motor->m_control_mode != CONTROL_MODE_POS) {
@@ -504,9 +504,9 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float d_term_proc_pos;
 
 	//First treat position eror
-	float pos_kp = conf_now->p_pid_kp;
-	float pos_ki = conf_now->p_pid_ki;
-	float pos_kd = conf_now->p_pid_kd;
+	float pos_kp = motor->p_kp_pos;
+	float pos_ki = motor->p_ki_pos;
+	float pos_kd = 0.0f;// motor->p_kd_pos;
 	float pos_kd_proc = conf_now->p_pid_kd_proc;
 
 
@@ -518,11 +518,11 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		motor->m_speed_prev_error = 0.0f;
 		motor->m_speed_d_filter = 0.0f;
 		motor->model_pos_i_term = 0.0f;
-		motor->integrated_value= 0.0f;
-		motor->unwrapped_theta=motor->model_pos_set_model;
-		motor->unwrapped_theta_filtered=motor->model_pos_set_model;
-		motor->model_pos_set_model=0.0f;
-		motor->model_pos_d_filter=0.0f;
+	//	motor->integrated_value= 0.0f;
+	//	motor->unwrapped_theta=motor->model_pos_set_model;
+	//	motor->unwrapped_theta_filtered=motor->model_pos_set_model;
+	//	motor->model_pos_set_model=0.0f;
+	//	motor->model_pos_d_filter=0.0f;
 
 		return;
 	}
@@ -535,18 +535,61 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		utils_truncate_number(&motor->m_speed_pid_set_rpm, conf_now->l_min_erpm, conf_now->l_max_erpm);
 	}
 
+
 	float rpm = 0.0;
+
+	float erpm = fabsf(motor->d_erpm_soll);
+
+ 	// piecewise -> then smoothstep each region
+	float thr;
+
+	if (erpm < 200.0f) {
+		thr = 0.5f;
+	} else if (erpm < 800.0f) {
+		float x = (erpm - 200.0f) / 600.0f;          // 0..1
+		x = x * x * (3.0f - 2.0f * x);
+		thr = 0.5f + (3.0f - 0.5f) * x;
+	} else if (erpm < 2000.0f) {
+		float x = (erpm - 800.0f) / 1200.0f;         // 0..1
+		x = x * x * (3.0f - 2.0f * x);
+		thr = 3.0f + (10.0f - 3.0f) * x;
+	} else {
+		thr = 10.0f;
+	}
+
+	motor->rpm_inc_filter_th = thr;
 	switch (conf_now->s_pid_speed_source) {
 	case S_PID_SPEED_SRC_PLL:
 		rpm = RADPS2RPM_f(motor->m_pll_speed);
+		if (rpm  > motor->last_rpm +motor->rpm_inc_filter_th) {
+			rpm = motor->last_rpm + motor->rpm_inc_filter_th;
+		}
+		else if (rpm < motor->last_rpm - motor->rpm_inc_filter_th) {
+			rpm = motor->last_rpm - motor->rpm_inc_filter_th;
+		}
 		break;
 	case S_PID_SPEED_SRC_FAST:
 		rpm = RADPS2RPM_f(motor->m_speed_est_fast);
+		if (rpm  > motor->last_rpm +motor->rpm_inc_filter_th) {
+			rpm = motor->last_rpm + motor->rpm_inc_filter_th;
+		}
+		else if (rpm < motor->last_rpm - motor->rpm_inc_filter_th) {
+			rpm = motor->last_rpm - motor->rpm_inc_filter_th;
+		}
 		break;
 	case S_PID_SPEED_SRC_FASTER:
-		rpm =motor->ekf_rpm; //RADPS2RPM_f(motor->m_speed_est_faster);
+		rpm =RADPS2RPM_f(motor->m_speed_est_faster);
+		if (rpm  > motor->last_rpm +motor->rpm_inc_filter_th) {
+			rpm = motor->last_rpm + motor->rpm_inc_filter_th;
+		}
+		else if (rpm < motor->last_rpm - motor->rpm_inc_filter_th) {
+			rpm = motor->last_rpm - motor->rpm_inc_filter_th;
+		}
 		break;
 	}
+
+	motor->last_rpm = rpm;
+
 	//start KF 2 state
 
 	float angle_deg_now = encoder_read_deg();
@@ -564,6 +607,9 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// Save delta for next iteration
 	motor->kalman_last_delta_rad = delta_rad;
 
+	float speed_ratio = motor->d_erpm_soll / motor->p_speed_limit_pos_control_activation;
+	float smooth_factor = tanhf(speed_ratio);
+
 	// possibly changeable parameters
 	float gear_ratio = motor->gear_ratio_bike;
 	float incline    = 0.000f; // inclination angle, degrees
@@ -577,13 +623,13 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// --- forces (same variable names, corrected formulas) ---
 	float Area_s= motor->p_k_area*motor->p_height*motor->p_height;	//calculate section area
 	float F_air     = 0.5f * motor->p_air_ro *motor->p_c_air*Area_s*speed*fabsf(speed);
-	float F_roll    = smooth_force((motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope)),speed,0.1f);                          // Crr * m g cos(theta)
+	float F_roll    = smooth_factor*(motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope));                    // Crr * m g cos(theta)
 	float F_incline = motor->p_weight * 9.81f * sinf(slope);                                          // m g sin(theta)  (set incline=0 if you want it off)
 	// simple viscous bearing drag in force-domain (N·s/m). keep name, fix units:
-	float F_bearings = smooth_force(((motor->p_c_bw * motor->p_k_v_bw) * speed),speed,0.1f);
+	float F_bearings = smooth_factor*(motor->p_c_bw * motor->p_k_v_bw) * speed;
 
-	// F_res calculation
-	float F_combine = F_air + F_roll + F_incline + F_bearings; // resistance force
+	// F_res calculation	
+	float F_combine = (F_air + F_roll + F_incline + F_bearings); // resistance force
 
 	#define SCALE_INT 10000000.0f   // Float version for scaling
 
@@ -593,11 +639,23 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// --- Calculate motor torque ---
 	motor->te_calculated = motor->m_motor_state.iq * motor->p_kT + (motor->m_motor_state.iq * motor->m_motor_state.id) * (motor->p_ld - motor->p_lq);
-						
-	//Kalman Filter 3 Steps implemented
-	motor->last_tp=motor->kalman_x[2];
+				
+	
 
-	motor->unwrapped_theta_filtered=UTILS_LP_FAST(motor->unwrapped_theta_filtered,motor->unwrapped_theta,0.05f);
+
+	motor->unwrapped_theta_filtered_prev = motor->unwrapped_theta_filtered;
+	UTILS_LP_FAST(motor->unwrapped_theta_filtered,motor->unwrapped_theta,0.05f);
+/*
+	float inc_filter_th=motor->d_erpm_soll * (2.0f * M_PI / 60.0f) / motor->m_conf->si_motor_poles/2.0f +3.0f; // 5 times per dt
+
+	if (motor->unwrapped_theta_filtered >= motor->unwrapped_theta_filtered_prev + inc_filter_th*dt){
+		motor->unwrapped_theta_filtered = motor->unwrapped_theta_filtered_prev + inc_filter_th*dt;
+	}
+	else if (motor->unwrapped_theta_filtered <= motor->unwrapped_theta_filtered_prev - inc_filter_th*dt){
+		motor->unwrapped_theta_filtered = motor->unwrapped_theta_filtered_prev - inc_filter_th*dt;
+	}
+*/	
+
 
 	leso3_step(
     motor,
@@ -605,26 +663,9 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     motor->te_calculated,          // motor torque [Nm] (applied/estimated)
     motor->unwrapped_theta_filtered);// unwrapped mechanical angle [rad]
 
-	ekf3_step_simple(
-    motor,
-    dt,
-    motor->te_calculated,   // Nm (you already compute this above)
-    motor->unwrapped_theta // rad (your unwrapped mech angle)
-	);
 
-	// Use EKF outputs
-
-	const float theta_hat = motor->kalman_x[0];
-	const float omega_hat = motor->kalman_x[1];
-	const float Tp_hat    = motor->kalman_x[2];
-
-	motor->ekf_rpm= omega_hat * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
-
-	//float error = motor->m_speed_pid_set_rpm - rpm; //this was removed to activate position control
-	//use the internal speed_soll directly as reference(no exchange to matlab needed, 40x faster)
 	float error;
 
-	motor->tp_observed = Tp_hat;
 
 	motor->d_f_motor = (motor->te_calculated) / motor->p_wheel_radius * motor->p_mech_gearing;
 	
@@ -636,15 +677,15 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	//motor->erpm_time+=dt;
 	float wheel_erpm = motor->d_erpm_soll ;
 
-	// Crank/motor RPM from EKF
-	float motor_erpm = motor->ekf_rpm ;
+	
 
 	// Slip on motor side: how much faster the wheel is than the motor
 	// (already both in RPM now, so direct compare)
 
 	
-	float slip_rpm = (wheel_erpm - motor_erpm)/ (motor->m_conf->si_motor_poles / 2.0f);
-
+	float slip_rpm = (wheel_erpm - rpm)/ (motor->m_conf->si_motor_poles / 2.0f);
+	
+	
 
 	// Freewheeling logic
 	// If the motor is being back-driven by the rider, and the rider torque exceeds the motor torque by a certain threshold,
@@ -663,7 +704,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	if (motor->freewheel_enabled || motor->forced_freewheel) {
 
-		if (motor->ekf_rpm<300){
+		if (rpm < motor->p_speed_limit_pos_control_activation){
 			FW_T_REENG=0.1f;
 		}
 		else if (motor->forced_freewheel)
@@ -715,7 +756,12 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	pos_error=  motor->model_pos_set_model - motor->unwrapped_theta_filtered ; //desired position in rad, motor shaft
 	p_term_pos = pos_error * pos_kp;
-	motor->model_pos_i_term += pos_error * (pos_ki * dt);
+	motor->model_pos_i_term += dt * (pos_ki * pos_error - pos_ki * motor->model_pos_i_term);
+
+
+
+
+
 
 	motor->model_pos_dt_int += dt;
 	if (error == motor->model_pos_prev_error) {
@@ -762,9 +808,9 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float Te_ff = (-motor->Text_ext_hat_f);//- T_res);
 
 	
-	if (motor->d_erpm_soll<200.0f)
+	if (motor->d_erpm_soll<motor->p_speed_limit_pos_control_activation)
 	{
-		Te_ff = Te_ff*motor->d_erpm_soll/200.0f; //reduce feedforward torque at low speed to avoid sudden starts
+		Te_ff = Te_ff*smooth_factor; //reduce feedforward torque at low speed to avoid sudden starts
 	}
 	// Store outputs
 	motor->Te_set    = Te_ff;         // Te* (FF-only for now)
@@ -788,9 +834,13 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->d_i_res = -iq_ff;          // store FF current (A)
 
 
+	float pos_i_term;
+	// Calculate output using smooth tanh linearization
 
-	// Calculate output
-	float output = p_term + motor->m_speed_i_term + d_term + iq_ff_norm + p_term_pos + motor->model_pos_i_term;// + motor->model_pos_d_filter; 
+	pos_i_term = motor->model_pos_i_term ;
+	p_term_pos = p_term_pos;
+
+	float output = p_term+ motor->m_speed_i_term  + d_term + iq_ff_norm + p_term_pos + pos_i_term;// + motor->model_pos_d_filter; 
 	utils_truncate_number_abs(&output, 1.0);
 
 	// Integrator windup protection
@@ -1040,110 +1090,7 @@ static inline float dTf_domega(float omega, float b) {
     // derivative of b*|omega|; Coulomb derivative ~0 (a.e.)
     return (fabsf(omega) < 1e-4f) ? 0.0f : b * (omega > 0.0f ? 1.0f : -1.0f);
 }
-// --- EKF step: predict + angle update -------------------------------------
-inline void ekf3_step_simple(
-    motor_all_state_t *m,
-    float dt,
-    float Te,             // motor torque [Nm]
-    float theta_meas      // unwrapped mechanical angle [rad]
-) {
-    // ---- Unpack ----
-    float *x      = m->kalman_x;   // x = [theta, omega, T_p]
-    float (*P)[3] = m->kalman_P;
-    float (*Q)[3] = m->kalman_Q;
-    const float J = m->p_J;
 
-    if (dt <= 0.0f) return;
-
-    // ---- Friction: Stribeck (smooth, consistent Jacobian) ----
-    float Tf = 0.0f, dTf = 0.0f;
-
-
-    // ---- Predict (nonlinear) ----
-    const float invJ = 1.0f / J;
-    const float b_dt = dt * invJ;
-
-    const float th_n = x[0] + dt * x[1];
-    const float om_n = x[1] + b_dt * (Te + x[2] - Tf);
-    const float Tp_n = x[2];
-
-    x[0] = th_n;
-    x[1] = om_n;
-    x[2] = Tp_n;
-
-    // ---- Covariance predict with consistent F ----
-    // F = [1, dt, 0;
-    //      0, 1 - dt/J * dTf/dω, dt/J;
-    //      0, 0, 1]
-    const float a   = dt * invJ * dTf;
-    const float F00 = 1.0f, F01 = dt,      F02 = 0.0f;
-    const float F10 = 0.0f, F11 = 1.0f - a, F12 = b_dt;
-    const float F20 = 0.0f, F21 = 0.0f,    F22 = 1.0f;
-
-    // FP = F*P
-    float FP00 = F00*P[0][0] + F01*P[1][0] + F02*P[2][0];
-    float FP01 = F00*P[0][1] + F01*P[1][1] + F02*P[2][1];
-    float FP02 = F00*P[0][2] + F01*P[1][2] + F02*P[2][2];
-
-    float FP10 = F10*P[0][0] + F11*P[1][0] + F12*P[2][0];
-    float FP11 = F10*P[0][1] + F11*P[1][1] + F12*P[2][1];
-    float FP12 = F10*P[0][2] + F11*P[1][2] + F12*P[2][2];
-
-    float FP20 = F20*P[0][0] + F21*P[1][0] + F22*P[2][0];
-    float FP21 = F20*P[0][1] + F21*P[1][1] + F22*P[2][1];
-    float FP22 = F20*P[0][2] + F21*P[1][2] + F22*P[2][2];
-
-    // P = FP*F' + Q
-    float P00 = FP00*F00 + FP01*F01 + FP02*F02 + Q[0][0];
-    float P01 = FP00*F10 + FP01*F11 + FP02*F12 + Q[0][1];
-    float P02 = FP00*F20 + FP01*F21 + FP02*F22 + Q[0][2];
-
-    float P10 = FP10*F00 + FP11*F01 + FP12*F02 + Q[1][0];
-    float P11 = FP10*F10 + FP11*F11 + FP12*F12 + Q[1][1];
-    float P12 = FP10*F20 + FP11*F21 + FP12*F22 + Q[1][2];
-
-    float P20 = FP20*F00 + FP21*F01 + FP22*F02 + Q[2][0];
-    float P21 = FP20*F10 + FP21*F11 + FP22*F12 + Q[2][1];
-    float P22 = FP20*F20 + FP21*F21 + FP22*F22 + Q[2][2];
-
-    P[0][0]=P00; P[0][1]=P01; P[0][2]=P02;
-    P[1][0]=P10; P[1][1]=P11; P[1][2]=P12;
-    P[2][0]=P20; P[2][1]=P21; P[2][2]=P22;
-
-    // ---- Angle update (H = [1 0 0]) ----
-    {
-        const float y    = theta_meas - x[0];
-        const float S    = P[0][0] + m->kalman_R;
-        const float invS = 1.0f / S;
-
-        const float r0 = P[0][0], r1 = P[0][1], r2 = P[0][2];
-        const float K0 = P[0][0] * invS;
-        const float K1 = P[1][0] * invS;
-        const float K2 = P[2][0] * invS;
-
-        x[0] += K0 * y;
-        x[1] += K1 * y;
-        x[2] += K2 * y;
-
-        P[0][0] -= K0 * r0;  P[0][1] -= K0 * r1;  P[0][2] -= K0 * r2;
-        P[1][0] -= K1 * r0;  P[1][1] -= K1 * r1;  P[1][2] -= K1 * r2;
-        P[2][0] -= K2 * r0;  P[2][1] -= K2 * r1;  P[2][2] -= K2 * r2;
-
-        // keep symmetry
-        P[1][0] = P[0][1];
-        P[2][0] = P[0][2];
-        P[2][1] = P[1][2];
-    }
-
-    // ---- Guards ----
-    const float Pmin = 1e-12f;
-    if (P[0][0] < Pmin) P[0][0] = Pmin;
-    if (P[1][1] < Pmin) P[1][1] = Pmin;
-    if (P[2][2] < Pmin) P[2][2] = Pmin;
-
-    // export (optional)
-    m->Tf_hat = Tf;
-}
 
 float smooth_force(float mag, float v, float v_eps) {
     return mag * tanhf(v / v_eps); // smoothly goes negative if v<0
@@ -1154,6 +1101,7 @@ float smooth_force(float mag, float v, float v_eps) {
 // Outputs: m->Text_ext_hat [Nm], m->Text_ext_hat_f [Nm]
 // Inputs: theta_meas = UNWRAPPED angle [rad], Te_meas = kT * iq_meas_f [Nm], dt [s]
 
+/*
 inline void leso3_step(
     motor_all_state_t *m,
     float dt,
@@ -1185,7 +1133,7 @@ inline void leso3_step(
     const float om_dot = b0 * Te_meas + m->leso_z + b2 * e;
     float       z_dot  = b3 * e - (2.0f*(float)M_PI*gz_hz) * m->leso_z; // small leak
 
-	float Tdot_max = 400.0f; // Nm/s, max allowed rate of change of estimated torque
+	float Tdot_max = 250.0f; // Nm/s, max allowed rate of change of estimated torque
 	// ------- RATE CLAMP on z (maps to motor torque via T = J*z) -------
 	{
     // Max allowed change in z per step that corresponds to |dT/dt| <= Tdot_max
@@ -1211,4 +1159,258 @@ inline void leso3_step(
     const float aT = expf(-2.0f * (float)M_PI * fc_TLPF * dt);
     m->Text_ext_hat_f = aT * m->Text_ext_hat_f + (1.0f - aT) * Text_hat;
 
+}*/
+// Add this to your motor_all_state_t (or equivalent):
+// float leso_th_ref;
+
+// Add these to motor_all_state_t:
+// float leso_th_ref;
+// float leso_theta_prev;
+// float leso_Te_prev;
+/*
+inline void leso3_step(
+    motor_all_state_t *m,
+    float dt,
+    float Te_meas,
+    float theta_meas
+){
+    if (!m || dt <= 0.0f) return;
+
+    const float J = m->p_J;
+    if (!(J > 0.0f)) return;
+
+    // ---------- Tuning (linear ESO) ----------
+    const float fo_hz   = m->p_fo_hz;
+    const float gz_hz   = m->p_gz_hz;
+    const float fc_TLPF = m->p_fc_TLPF;
+    // ----------------------------------------
+
+    const float B  = m->p_B;   // viscous [Nm/(rad/s)] (as you wrote)
+    const float b0 = 1.0f / J;
+
+    // Gains from bandwidth: (s + wo)^3
+    const float wo = 2.0f * (float)M_PI * fo_hz;
+    const float b1 = 3.0f * wo;
+    const float b2 = 3.0f * wo * wo;
+    const float b3 =        wo * wo * wo;
+
+    const float gz = 2.0f * (float)M_PI * gz_hz;
+
+    // --------- Reference-centering + init ----------
+    if (!isfinite(m->leso_th_ref)) {
+        m->leso_th_ref     = theta_meas;
+        m->leso_th         = 0.0f;
+        m->leso_om         = 0.0f;
+        m->leso_z          = 0.0f;
+        m->leso_theta_prev = theta_meas;   // init trapezoid memory
+        m->leso_Te_prev    = Te_meas;
+    }
+
+    // Centered angle
+    float theta_k   = theta_meas - m->leso_th_ref;
+    float theta_km1 = m->leso_theta_prev - m->leso_th_ref;
+
+    // Trapezoidal (midpoint) inputs for Tustin consistency
+    const float theta_bar = 0.5f * (theta_k + theta_km1);
+    const float Te_bar    = 0.5f * (Te_meas + m->leso_Te_prev);
+
+    // Update memories for next call
+    m->leso_theta_prev = theta_meas;
+    m->leso_Te_prev    = Te_meas;
+
+    const float h = 0.5f * dt;
+
+    // M = I - hA
+    const float m11 = 1.0f + h * b1;
+    const float m12 = -h;
+    const float m21 =  h * b2;
+    const float m22 = 1.0f + h * (b0 * B);
+    const float m23 = -h;
+    const float m31 =  h * b3;
+    const float m33 = 1.0f + h * gz;
+
+    // N = I + hA
+    const float n11 = 1.0f - h * b1;
+    const float n12 =  h;
+    const float n21 = -h * b2;
+    const float n22 = 1.0f - h * (b0 * B);
+    const float n23 =  h;
+    const float n31 = -h * b3;
+    const float n33 = 1.0f - h * gz;
+
+    // affine input c (use trapezoidal averaged inputs)
+    const float c1 = b1 * theta_bar;
+    const float c2 = b2 * theta_bar + b0 * Te_bar;
+    const float c3 = b3 * theta_bar;
+
+    // RHS r = N*xk + dt*c
+    const float thk = m->leso_th;
+    const float omk = m->leso_om;
+    const float zk  = m->leso_z;
+
+    const float r1 = n11 * thk + n12 * omk + dt * c1;
+    const float r2 = n21 * thk + n22 * omk + n23 * zk  + dt * c2;
+    const float r3 = n31 * thk + n33 * zk  + dt * c3;
+
+    // Solve M x_{k+1} = r exploiting sparsity
+    const float inv_m11 = 1.0f / m11;
+    const float inv_m33 = 1.0f / m33;
+
+    const float th_const = r1 * inv_m11;
+    const float th_om    = (-m12) * inv_m11;
+
+    const float z_const  = (r3 - m31 * th_const) * inv_m33;
+    const float z_om     = (-(m31 * th_om)) * inv_m33;
+
+    const float const2 = m21 * th_const + m23 * z_const;
+    const float coeff2 = m21 * th_om    + m22        + m23 * z_om;
+
+    float om_new = omk;
+    if (fabsf(coeff2) > 1e-12f) {
+        om_new = (r2 - const2) / coeff2;
+    }
+
+    const float th_new = th_const + th_om * om_new;
+    const float z_new  = z_const  + z_om  * om_new;
+
+    // Commit
+    m->leso_th = th_new;
+    m->leso_om = om_new;
+    m->leso_z  = z_new;
+
+    // External torque (motor side)
+    const float Text_hat = J * m->leso_z;
+    m->Text_ext_hat = Text_hat;
+
+    // Output LPF (single-pole)
+    const float aT = expf(-2.0f * (float)M_PI * fc_TLPF * dt);
+    m->Text_ext_hat_f = aT * m->Text_ext_hat_f + (1.0f - aT) * Text_hat;
+}
+*/
+// Requires in state:
+// m->leso_th, m->leso_om, m->leso_z
+
+// Requires in state:
+// m->leso_th, m->leso_om, m->leso_z
+// Add to motor_all_state_t:
+// float leso_th_prev;   // previous theta_meas [rad]
+// float leso_om_fd;     // filtered derivative omega [rad/s]
+
+// Add to motor_all_state_t:
+// float leso_th_prev;   // previous theta_meas [rad]
+// float leso_om_fd;     // filtered derivative omega [rad/s]
+
+inline void leso3_step(
+    motor_all_state_t *m,
+    float dt,
+    float Te_meas,
+    float theta_meas
+){
+    if (!m || dt <= 0.0f) return;
+    const float J = m->p_J; if (!(J > 0.0f)) return;
+
+    // Tuning
+    const float fo_hz   = m->p_fo_hz;
+    const float gz_hz   = m->p_gz_hz;
+    const float fc_TLPF = m->p_fc_TLPF;
+
+    const float B  = m->p_B;            // Nm/(rad/s), can be 0
+    const float b0 = 1.0f / J;
+
+    const float wo = 2.0f * (float)M_PI * fo_hz;
+    const float b1 = 3.0f * wo;
+    const float b2 = 3.0f * wo * wo;
+    const float b3 =        wo * wo * wo;
+    const float gz = 2.0f * (float)M_PI * gz_hz;
+
+    const float h = 0.5f * dt;
+
+    // Shorthand old states
+    const float thk = m->leso_th;
+    const float omk = m->leso_om;
+    const float zk  = m->leso_z;
+
+    // e_k uses th_k
+    const float ek = theta_meas - thk;
+
+    // We solve a 3x3 linear system for [th_{k+1}, om_{k+1}, z_{k+1}]
+    // derived from trapezoidal integration with e_{k+1} = theta_meas - th_{k+1}.
+    //
+    // The resulting linear system can be written as:
+    // A * [th1, om1, z1]^T = rhs
+    //
+    // where A is sparse and depends only on (dt, b1,b2,b3,b0,B,gz).
+
+    // Build A coefficients
+    // From:
+    // th1 = thk + h*( (omk + b1*ek) + (om1 + b1*(theta - th1)) )
+    // om1 = omk + h*( (b0*(Te - B*omk) + zk + b2*ek) + (b0*(Te - B*om1) + z1 + b2*(theta - th1)) )
+    // z1  = zk  + h*( (b3*ek - gz*zk) + (b3*(theta - th1) - gz*z1) )
+
+    const float a11 = 1.0f + h * b1;          // th1 coeff in eq(th)
+    const float a12 = -h;                      // om1 coeff in eq(th)
+    const float a13 = 0.0f;
+
+    const float a21 =  h * b2;                 // th1 coeff in eq(om)  (moved to LHS)
+    const float a22 = 1.0f + h * (b0 * B);     // om1 coeff
+    const float a23 = -h;                      // z1 coeff
+
+    const float a31 =  h * b3;                 // th1 coeff in eq(z)
+    const float a32 = 0.0f;
+    const float a33 = 1.0f + h * gz;           // z1 coeff
+
+    // RHS
+    // eq(th): thk + h*(omk + b1*ek) + h*(b1*theta)  BUT theta term is included via (theta - th1) already on LHS
+    // When expanding carefully, RHS becomes:
+    const float rhs1 = thk + h * (omk + b1 * ek) + h * (b1 * theta_meas);
+
+    // eq(om):
+    const float fk_om = b0 * (Te_meas - B * omk) + zk + b2 * ek;
+    const float rhs2  = omk + h * fk_om + h * (b0 * Te_meas + b2 * theta_meas);
+
+    // eq(z):
+    const float fk_z = b3 * ek - gz * zk;
+    const float rhs3 = zk + h * fk_z + h * (b3 * theta_meas);
+
+    // Solve sparse system like before:
+    // a11*th1 + a12*om1          = rhs1
+    // a21*th1 + a22*om1 + a23*z1 = rhs2
+    // a31*th1          + a33*z1  = rhs3
+
+    const float inv_a11 = 1.0f / a11;
+    const float inv_a33 = 1.0f / a33;
+
+    // th1(om1) = (rhs1 - a12*om1)/a11
+    const float th_const = rhs1 * inv_a11;
+    const float th_om    = (-a12) * inv_a11;
+
+    // z1(om1) = (rhs3 - a31*th1)/a33
+    const float z_const  = (rhs3 - a31 * th_const) * inv_a33;
+    const float z_om     = (-(a31 * th_om)) * inv_a33;
+
+    // Plug into eq2:
+    // a21*th1 + a22*om1 + a23*z1 = rhs2
+    const float const2 = a21 * th_const + a23 * z_const;
+    const float coeff2 = a21 * th_om + a22 + a23 * z_om;
+
+    float om1 = omk;
+    if (fabsf(coeff2) > 1e-12f) {
+        om1 = (rhs2 - const2) / coeff2;
+    }
+
+    const float th1 = th_const + th_om * om1;
+    const float z1  = z_const  + z_om  * om1;
+
+    // Commit
+    m->leso_th = th1;
+    m->leso_om = om1;
+    m->leso_z  = z1;
+
+    // External torque (motor side)
+    const float Text_hat = J * m->leso_z;
+    m->Text_ext_hat = Text_hat;
+
+    // LPF for output torque
+    const float aT = expf(-2.0f * (float)M_PI * fc_TLPF * dt);
+    m->Text_ext_hat_f = aT * m->Text_ext_hat_f + (1.0f - aT) * Text_hat;
 }
