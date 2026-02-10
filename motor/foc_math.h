@@ -300,6 +300,8 @@ typedef struct {
     float p_gz_hz;      // = 0.00f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
     float p_fc_TLPF; 	  // = 200.0f;   
 	float p_adrc_scale; // =1.0f;
+	float p_Tc;           // <-- add this parameter to motor_all_state_t
+    float p_Tc_ws; 	// <-- add this parameter too (rad/s)
 	//control tunables
 	float p_kp_pos;
 	float p_ki_pos;
@@ -401,11 +403,19 @@ void foc_run_fw(motor_all_state_t *motor, float dt);
 void foc_hfi_adjust_angle(float ang_err, motor_all_state_t *motor, float dt);
 void foc_precalc_values(motor_all_state_t *motor);
 float band_pass_filter(float input,float centerFreq,   float bandwidth, float sampleRate, motor_all_state_t *motor);
-static inline float friction_T(float omega, float Tc, float b);
-static inline float sgn_db(float x, float dead);
-static inline float dTf_domega(float omega, float b);
+//static inline float friction_T(float omega, float Tc, float b);
+//static inline float sgn_db(float x, float dead);
+//static inline float dTf_domega(float omega, float b);
 //static inline void stribeck_tf_and_dtf(    const motor_all_state_t *m,    float omega,    float *Tf_out,    float *dTf_out);
 //inline float Tf_smooth(float omega, float Tc, float B, float omega_s);
+inline void leso3_step(
+    motor_all_state_t *m,
+    float dt,
+    float Te_meas,
+    float theta_meas,
+	float omega
+);
 
+static inline float falf(float e, float alpha, float delta);
 float smooth_force(float mag, float v, float v_eps);
 #endif /* FOC_MATH_H_ */

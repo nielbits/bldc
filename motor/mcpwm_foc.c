@@ -393,8 +393,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_adrc_scale= 1.0f; // 
 	m_motor_1.p_speed_limit_pos_control_activation =400.0f; // Speed limit for position control activation
 
-	m_motor_1.p_kp_pos =0.0f;
-	m_motor_1.p_ki_pos =0.0f;
+	m_motor_1.p_kp_pos =m_motor_1.m_conf->p_pid_kp;
+	m_motor_1.p_ki_pos =m_motor_1.m_conf->p_pid_ki;
 	m_motor_1.p_kd_pos =0.0f;
 
 	m_motor_1.forced_freewheel= false;
@@ -456,6 +456,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 		m_motor_1.p_kT= (float)(1.5f*0.01927f *23.0f);
 		m_motor_1.p_mech_gearing=(240.0f/92.2f);
 		m_motor_1.p_B= 0.0576f;
+		m_motor_1.p_Tc= 3.0*m_motor_1.p_kT;           // <-- add this parameter to motor_all_state_t
+    	m_motor_1.p_Tc_ws= 1.0f; 
 
 	}
 	else
