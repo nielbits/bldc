@@ -359,6 +359,9 @@ typedef struct {
 	float leso_th_prev;   // init trapezoid memory
     float leso_Te_prev;
 	float leso_om_fd;
+
+	float Tdist_total_hat;     // Nm  (total matched disturbance torque estimate)
+	float Tdist_total_hat_f;   // Nm  (LPF version for cancellation)
 	// Te_feed_forward
 	float Te_set;         // (optional) motor torque setpoint [Nm] for logging
 	float iq_set_ff;      // (optional) current feedforward [A]
@@ -419,3 +422,6 @@ inline void leso3_step(
 static inline float falf(float e, float alpha, float delta);
 float smooth_force(float mag, float v, float v_eps);
 #endif /* FOC_MATH_H_ */
+static inline float ramp_rational_ref(float x, float x_ref, float p);
+static inline float map_floor(float m, float floor);
+static inline float ramp_rational_x0(float x, float x0, float p);
