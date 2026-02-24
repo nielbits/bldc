@@ -306,15 +306,19 @@ typedef struct {
 	float p_kp_pos;
 	float p_ki_pos;
 	float p_kd_pos;
+	float leso_z4; // [rad/s^3]
 
 	// --- freewheel state ---
 	bool forced_freewheel;
 	bool freewheel_enabled;
-
+	float leso_omega_in;
 
 	//Tp observer calculations
 	float tp_observed;
 	float te_calculated;
+
+	float  model_v;
+	float model_accel_prev;
 
 	int_fast64_t omega_fp;              // scaled rad/s
 	int_fast64_t omega_filtered_fp;     // filtered scaled speed
@@ -419,9 +423,27 @@ inline void leso3_step(
 	float omega
 );
 
-static inline float falf(float e, float alpha, float delta);
+
+inline float falf(float e, float alpha, float delta);
+inline float ramp_rational_ref(float x, float x_ref, float p);
+inline float map_floor(float m, float floor);
+inline float ramp_rational_x0(float x, float x0, float p);
+inline float clampf(float x, float lo, float hi);
+inline float slew_limit(float x, float x_prev, float rate, float dt);
+inline float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1);
+float fal_gain(float e, float alpha, float delta, float g0);
 float smooth_force(float mag, float v, float v_eps);
+inline float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1);
+static inline float fal_nleso_erpm(float e_th_rad,
+                                  float alpha,
+                                  float delta_erpm,
+                                  float dt,
+                                  float pole_pairs);
+inline void nleso4_step_ext_torque(
+    motor_all_state_t *m,
+    float dt,
+    float Te_meas,
+    float theta_meas,
+    float omega_meas
+);
 #endif /* FOC_MATH_H_ */
-static inline float ramp_rational_ref(float x, float x_ref, float p);
-static inline float map_floor(float m, float floor);
-static inline float ramp_rational_x0(float x, float x0, float p);

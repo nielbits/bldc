@@ -376,24 +376,23 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	
 	//parameter initialization
 	m_motor_1.p_air_ro=1.2f; //air density
-	m_motor_1.p_c_rr= 0.0025f; //rolling friction
+	m_motor_1.p_c_rr= 0.0055f;//0.0025 //rolling friction
 	m_motor_1.p_weight= 85.0f+12.0f;
 	m_motor_1.p_As= 0.509f; //section area
-	m_motor_1.p_c_air= 0.76f; //air resistance coefficient
+	m_motor_1.p_c_air= 0.86f; //0.76air resistance coefficient
 	m_motor_1.p_c_bw=0.0015f;
 	m_motor_1.p_c_wl= 0.0015;//0.76f;//air resistance coefficient
 	m_motor_1.p_wheel_radius= 0.3556f; //bike wheel radius;
 	m_motor_1.p_r_bearings=0.014f;
 	m_motor_1.p_k_v_bw= 0.00001f;
-	m_motor_1.p_k_area =0.14f;
+	m_motor_1.p_k_area =0.14f;//0.14
 	m_motor_1.p_height =1.75f;
 	m_motor_1.p_fo_hz=8.0f;      // = 8.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
     m_motor_1.p_gz_hz=0.2f;      // = 0.20f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
     m_motor_1.p_fc_TLPF= 100.f; 	  // = 200.0f;   
 	m_motor_1.p_adrc_scale= 1.0f; // 
 	m_motor_1.p_speed_limit_pos_control_activation =400.0f; // Speed limit for position control activation
-
-	m_motor_1.p_kp_pos =m_motor_1.m_conf->p_pid_kp;
+	m_motor_1.leso_z4 = 0.0f;	m_motor_1.p_kp_pos =m_motor_1.m_conf->p_pid_kp;
 	m_motor_1.p_ki_pos =m_motor_1.m_conf->p_pid_ki;
 	m_motor_1.p_kd_pos =0.0f;
 
@@ -401,6 +400,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.freewheel_active = false;
 	m_motor_1.freewheel_enabled = false;  // or true, depending on design
 
+	m_motor_1.model_accel_prev = 0.0f;
+	m_motor_1.model_v = 0.0f;
 
 	m_motor_1.fw_timer_s= 0.0f;
 
@@ -438,6 +439,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.last_delta_rad = 0.0f;
 
 	m_motor_1.Tf_hat = 0.0f;
+	m_motor_1.leso_omega_in=0.0f;
 
 	
 
