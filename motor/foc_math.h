@@ -133,6 +133,13 @@ typedef enum {
 	FOC_PWM_FULL_BRAKE
 } foc_pwm_mode;
 
+
+typedef enum {
+	CTRL_SM_START = 0,
+	CTRL_SM_INDEX_FOUND = 1,
+	CTRL_SM_ENABLE = 2
+} ctrl_sm_state_t;
+
 typedef struct {
 	mc_configuration *m_conf;
 	mc_state m_state;
@@ -329,6 +336,9 @@ typedef struct {
 
 
 
+	ctrl_sm_state_t ctrl_sm_state;
+
+	uint32_t ctrl_sm_still_cycles;
 
 	bool freewheel_active;
 	float fw_timer_s;
@@ -434,7 +444,7 @@ inline float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1
 float fal_gain(float e, float alpha, float delta, float g0);
 float smooth_force(float mag, float v, float v_eps);
 inline float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1);
-static inline float fal_nleso_erpm(float e_th_rad,
+inline float fal_nleso_erpm(float e_th_rad,
                                   float alpha,
                                   float delta_erpm,
                                   float dt,

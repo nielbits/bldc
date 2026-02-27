@@ -387,7 +387,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_k_v_bw= 0.00001f;
 	m_motor_1.p_k_area =0.14f;//0.14
 	m_motor_1.p_height =1.75f;
-	m_motor_1.p_fo_hz=8.0f;      // = 8.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
+	m_motor_1.p_fo_hz= 25.0f;      // = 8.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
     m_motor_1.p_gz_hz=0.2f;      // = 0.20f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
     m_motor_1.p_fc_TLPF= 100.f; 	  // = 200.0f;   
 	m_motor_1.p_adrc_scale= 1.0f; // 
@@ -396,6 +396,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_ki_pos =m_motor_1.m_conf->p_pid_ki;
 	m_motor_1.p_kd_pos =0.0f;
 
+	m_motor_1.ctrl_sm_still_cycles = 0;
+	m_motor_1.ctrl_sm_state = CTRL_SM_START;
 	m_motor_1.forced_freewheel= false;
 	m_motor_1.freewheel_active = false;
 	m_motor_1.freewheel_enabled = false;  // or true, depending on design
@@ -441,7 +443,6 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.Tf_hat = 0.0f;
 	m_motor_1.leso_omega_in=0.0f;
 
-	
 
 	// only if these two are indeed members of m_motor_1 (not just locals):
 	m_motor_1.omega_fp = 0;
@@ -1269,15 +1270,14 @@ float mcpwm_foc_get_kalman_omega(void){
 }
 float mcpwm_foc_get_tp_observed(void){
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor->Text_ext_hat_f;
+	return motor->tp_observed;
 }
 
 
 float mcpwm_foc_get_model_speed(void){
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor->d_speed_soll;
 	
-	//return motor->d_speed_soll;
+	return motor->d_speed_soll;
 }
 
 
