@@ -513,6 +513,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 
 
+
 	bool ctrl_enabled = false;
 
 
@@ -636,7 +637,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	const float p_shape   = 2.0f;
 	const float spd_floor = 0.30f;
 	const float pos_floor = 0.30f;
-	const float pos_dead  = 10.0f;
+	const float pos_dead  = 20.0f;
 
 	const float m_spd = ramp_rational_x0(erpm_abs_meas, erpm_half, p_shape);
 	const float g_spd = map_floor(m_spd, spd_floor);
@@ -698,16 +699,97 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// theta filter
 	motor->unwrapped_theta_filtered_prev = motor->unwrapped_theta_filtered;
-	UTILS_LP_FAST(motor->unwrapped_theta_filtered, motor->unwrapped_theta, 0.05f);
+	UTILS_LP_FAST(motor->unwrapped_theta_filtered, motor->unwrapped_theta, 0.15f);
 
 	float omega_for_leso = RADPS2RPM_f(motor->m_pll_speed) /
 		(9.54929f * (motor->m_conf->si_motor_poles / 2));
 
 	leso3_step(motor, dt, motor->te_calculated, motor->unwrapped_theta_filtered, omega_for_leso);
 
+
+
+		// Freewheeling logic
+	// If the motor is being back-driven by the rider, and the rider torque exceeds the motor torque by a certain threshold,
+	// then we disengage the motor (set iq to 0) and let it freewheel.
+	// The motor will re-engage when the rider torque drops below the motor torque by a certain hysteresis threshold,
+	// or if the rider applies a certain amount of positive torque (pedal push) to re-engage.
+	// === FREEWHEEL: engage/disengage using RPMs ===
+	// Wheel RPM (from virtual plant setpoint)
+	float FW_SLIP_ON_RPM,FW_SLIP_REENG,FW_T_DISENG,FW_T_REENG,FW_T_DISENG_FORCED; 
+	FW_SLIP_ON_RPM =15.0f; // disengage if wheel outruns by >20 rpm
+	FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
+	FW_T_REENG      = 1.00f;   // Nm rider push to re-engage
+	FW_T_DISENG = -1.00f;
+	FW_T_DISENG_FORCED=-10.0f;
+	// thresholds (tune or move to config)
+	float wheel_erpm = motor->d_erpm_soll ;
+	float erpm_ratio_freewheel_disengage= 0.9f;
+	float erpm_ratio_forced_disengage = 0.7f;
+
+	// Crank/motor RPM 
+	float motor_erpm = RADPS2RPM_f(motor->m_pll_speed);
+
+	float slip_rpm = (motor_erpm-wheel_erpm)/ (motor->m_conf->si_motor_poles / 2.0f);
+
+
+
+
+	if (!(motor->forced_freewheel || motor->freewheel_active) && (motor_erpm<= wheel_erpm * erpm_ratio_freewheel_disengage) && (motor->ctrl_sm_state == CTRL_SM_ENABLE) && (motor->tp_observed <FW_T_DISENG_FORCED)) 
+	{
+		motor->forced_freewheel = true;
+	}
+	
+	
+
+	if (motor->freewheel_enabled || motor->forced_freewheel) {
+
+		/*	if (motor_erpm<300){
+			FW_T_REENG=0.1f;
+		}
+		else if (motor->forced_freewheel)
+		{
+			FW_T_REENG=0.6f;
+		}	
+		else{
+			FW_T_REENG=0.5f;
+		}
+		*/
+		if (!motor->freewheel_active) {
+			if ((motor->tp_observed <= FW_T_DISENG)) {
+				motor->freewheel_active = true;
+			}
+		} else {
+			if (motor->tp_observed > FW_T_REENG && fabsf(slip_rpm)<FW_SLIP_REENG) {
+				motor->freewheel_active = false;
+				motor->forced_freewheel= false;
+				motor->model_pos_i_term=0.0f;		
+				// Track measured position: no accumulating position error while decoupled
+				motor->model_pos_set_model = motor->unwrapped_theta_filtered;
+			}
+		}
+	}else
+	{
+		motor->freewheel_active = false;
+		motor->forced_freewheel= false;
+	}
+
+
+	const bool fw = (motor->freewheel_active || motor->forced_freewheel);
 	// ================= Model integration (FLOAT, trapezoidal) =================
+
 	const float F_drive = (motor->tp_observed / motor->p_wheel_radius) * gearing;
-	const float accel_now = (F_drive - F_combine) / motor->p_weight;
+
+	float accel_now;
+
+	if (fw) 
+	{	
+		accel_now = (- F_combine) / motor->p_weight;
+	}
+	else
+	{	
+		accel_now = (F_drive - F_combine) / motor->p_weight;
+	}
+
 
 	motor->accel_ist = accel_now;
 
@@ -808,7 +890,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	if (sp_ki_eff < 1e-9f) {
 		motor->m_speed_i_term = 0.0f;
 	} else {
-		if (motor->freewheel_active && wants_accel) {
+		if ((motor->freewheel_active || motor->forced_freewheel) && wants_accel) {
 			motor->m_speed_i_term *= 0.98f;
 		} else {
 			motor->m_speed_i_term += i_inc;
@@ -826,22 +908,33 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		if (rpm < -20.0f && output > 0.0f) output = 0.0f;
 	}
 
-	if (motor->freewheel_active) {
+	if (motor->freewheel_active || motor->forced_freewheel) {
+	
+	}
+
+	if (fw) {
+
+		// Optional: also keep the "virtual speed" consistent so other logic doesn't see huge error
+		// Freeze / reset controller memories (pick freeze or reset; reset is safest)
+		motor->model_pos_i_term = 0.0f;
+		motor->m_speed_i_term   = 0.0f;
+		motor->m_speed_prev_error = 0.0f;
+		motor->m_speed_d_filter = 0.0f;
 		output = 0.0f;
 		motor->c_v_q_ff = 0.0f;
 	}
 	if (!ctrl_enabled) {
-    // freeze / reset controller states (your choice)
-    motor->m_speed_i_term = 0.0f;
-    motor->m_speed_prev_error = 0.0f;
-    motor->m_speed_d_filter = 0.0f;
-    motor->model_pos_i_term = 0.0f;
+		// freeze / reset controller states (your choice)
+		motor->m_speed_i_term = 0.0f;
+		motor->m_speed_prev_error = 0.0f;
+		motor->m_speed_d_filter = 0.0f;
+		motor->model_pos_i_term = 0.0f;
 
-    // kill output + FF
-    output = 0.0f;
-    motor->c_v_q_ff = 0.0f;
-    motor->iq_set_ff = 0.0f;
-    motor->Te_set = 0.0f;
+		// kill output + FF
+		output = 0.0f;
+		motor->c_v_q_ff = 0.0f;
+		motor->iq_set_ff = 0.0f;
+		motor->Te_set = 0.0f;
 	}
 
 	
