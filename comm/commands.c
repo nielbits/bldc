@@ -395,56 +395,55 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		}
 
 		if (mask & ((uint32_t)1 << 0)) {
-			buffer_append_float16(send_buffer, mcpwm_foc_get_erpm_soll(), 1e0, &ind);
+			buffer_append_float16(send_buffer, mc_interface_temp_fet_filtered(), 1e1, &ind);
 		}
 		if (mask & ((uint32_t)1 << 1)) {
-			buffer_append_float16(send_buffer,  mcpwm_foc_get_tf(), 1e4, &ind);
+			buffer_append_float16(send_buffer, mc_interface_temp_motor_filtered(), 1e1, &ind);
 		}
 		if (mask & ((uint32_t)1 << 2)) {
 			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_motor_current(), 1e2, &ind);
 		}
 		if (mask & ((uint32_t)1 << 3)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_gear_ratio(), 1e2, &ind);
+			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_input_current(), 1e2, &ind);
 		}
 		if (mask & ((uint32_t)1 << 4)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_id(), 1e2, &ind);
+			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_id(), 1e2, &ind);
 		}
 		if (mask & ((uint32_t)1 << 5)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_iq(), 1e2, &ind);
+			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_iq(), 1e2, &ind);
 		}
 		if (mask & ((uint32_t)1 << 6)) {
-			buffer_append_float16(send_buffer, mcpwm_foc_get_model_speed(), 1e2, &ind);
+			buffer_append_float16(send_buffer, mc_interface_get_duty_cycle_now(), 1e3, &ind);
 		}
 		if (mask & ((uint32_t)1 << 7)) {
 			buffer_append_float32(send_buffer, mc_interface_get_rpm(), 1e0, &ind);
 		}
 		if (mask & ((uint32_t)1 << 8)) {
-			buffer_append_float16(send_buffer, mcpwm_foc_get_f_combine(), 1e1, &ind);
+			buffer_append_float16(send_buffer, mc_interface_get_input_voltage_filtered(), 1e1, &ind);
 		}
 		if (mask & ((uint32_t)1 << 9)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_iq_set(), 1e4, &ind);
+			buffer_append_float32(send_buffer, mc_interface_get_amp_hours(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 10)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_uw_theta(), 1e4, &ind);
+			buffer_append_float32(send_buffer, mc_interface_get_amp_hours_charged(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 11)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_kalman_omega(), 1e4, &ind);
+			buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 12)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_tp_observed(), 1e4, &ind);
+			buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
 		}
 		if (mask & ((uint32_t)1 << 13)) {
 			buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);
 		}
 		if (mask & ((uint32_t)1 << 14)) {
-			buffer_append_int32(send_buffer, mcpwm_get_param_index(), &ind);//tachometerabsvalue
+			buffer_append_int32(send_buffer, mc_interface_get_tachometer_abs_value(false), &ind);
 		}
 		if (mask & ((uint32_t)1 << 15)) {
 			send_buffer[ind++] = mc_interface_get_fault();
 		}
 		if (mask & ((uint32_t)1 << 16)) {
-			buffer_append_float32(send_buffer, mcpwm_foc_get_i_res(), 1e6, &ind);
-			
+			buffer_append_float32(send_buffer, mc_interface_get_pid_pos_now(), 1e6, &ind);
 		}
 		if (mask & ((uint32_t)1 << 17)) {
 			uint8_t current_controller_id = app_get_configuration()->controller_id;
@@ -457,7 +456,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		}
 		if (mask & ((uint32_t)1 << 18)) {
 			if (mc_interface_get_motor_thread() == 2) {
-				buffer_append_float16(send_buffer, NTC_TEMP_MOS1_M2(), 1e1, &ind);//62 63 64 65 66 67
+				buffer_append_float16(send_buffer, NTC_TEMP_MOS1_M2(), 1e1, &ind);
 				buffer_append_float16(send_buffer, NTC_TEMP_MOS2_M2(), 1e1, &ind);
 				buffer_append_float16(send_buffer, NTC_TEMP_MOS3_M2(), 1e1, &ind);
 			} else {
@@ -467,13 +466,12 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			}
 		}
 		if (mask & ((uint32_t)1 << 19)) {
-			//buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vd(), 1e3, &ind); // 68 69 70 71
-			buffer_append_float32(send_buffer, mcpwm_foc_get_uw_angle_sp(), 1e4, &ind); // 68 69 70 71
+			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vd(), 1e3, &ind);
 		}
 		if (mask & ((uint32_t)1 << 20)) {
-			buffer_append_float32(send_buffer,mcpwm_get_param_from_index(), 1e3, &ind);// 72 73 74 75
+			buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vq(), 1e3, &ind);
 		}
-		if (mask & ((uint32_t)1 << 21)) { //76
+		if (mask & ((uint32_t)1 << 21)) {
 			uint8_t status = 0;
 			status |= timeout_has_timeout();
 			status |= timeout_kill_sw_active() << 1;
@@ -483,6 +481,73 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		reply_func(send_buffer, ind);
 		mempools_free_packet_buffer(send_buffer);
 	} break;
+
+	case COMM_GET_VALUES_EXP:{
+		int32_t ind = 0;
+		uint8_t *send_buffer = mempools_get_packet_buffer();
+		send_buffer[ind++] = packet_id;
+
+		buffer_append_float16(send_buffer, mc_interface_temp_fet_filtered(), 1e1, &ind); // 3 4
+		buffer_append_float16(send_buffer, mc_interface_temp_motor_filtered(), 1e1, &ind);// 5 6
+		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_motor_current(), 1e2, &ind); // 7 8 9 10
+		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_input_current(), 1e2, &ind); // 11 12 13 14
+		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_id(), 1e2, &ind); // 15 16 17 18
+		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_iq(), 1e2, &ind); // 19 20 21 22
+		buffer_append_float16(send_buffer, mc_interface_get_duty_cycle_now(), 1e3, &ind); // 23 24 
+		buffer_append_float32(send_buffer, mc_interface_get_rpm(), 1e0, &ind); // 25 26 27 28
+		buffer_append_float16(send_buffer, mc_interface_get_input_voltage_filtered(), 1e1, &ind); // 29 30
+		buffer_append_float32(send_buffer, mc_interface_get_amp_hours(false), 1e4, &ind); // 31 32 33 34
+		buffer_append_float32(send_buffer, mc_interface_get_amp_hours_charged(false), 1e4, &ind); // 35 36 37 38
+		buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind); // 39 40 41 42
+		buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind); // 43 44 45 46
+		buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind); // 47 48 49 50
+		buffer_append_int32(send_buffer, mc_interface_get_tachometer_abs_value(false), &ind); // 51 52 53 54
+		send_buffer[ind++] = mc_interface_get_fault(); // 55
+		buffer_append_float32(send_buffer, mc_interface_get_pid_pos_now(), 1e6, &ind); // 56 57 58 59 
+		uint8_t current_controller_id = app_get_configuration()->controller_id;
+		send_buffer[ind++] = current_controller_id; //60
+		buffer_append_float16(send_buffer, NTC_TEMP_MOS1_M2(), 1e1, &ind);//61 62  
+		buffer_append_float16(send_buffer, NTC_TEMP_MOS2_M2(), 1e1, &ind);//63 64
+		buffer_append_float16(send_buffer, NTC_TEMP_MOS3_M2(), 1e1, &ind);//65 66
+		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vd(), 1e3, &ind); //67 68 69 70
+		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vq(), 1e3, &ind); //71 72 73 74
+		uint8_t status = 0;
+		status |= timeout_has_timeout();
+		status |= timeout_kill_sw_active() << 1;
+		send_buffer[ind++] = status;	//75
+
+
+
+		buffer_append_float16(send_buffer, mcpwm_foc_get_erpm_soll(), 1e0, &ind);   // 76, 77
+		buffer_append_float16(send_buffer, mcpwm_foc_get_tf(), 1e4, &ind);          // 78, 79
+		buffer_append_float32(send_buffer, mcpwm_foc_get_gear_ratio(), 1e2, &ind);  // 80, 81, 82, 83
+		buffer_append_float32(send_buffer, mcpwm_foc_get_id(), 1e2, &ind);          // 84, 85, 86, 87
+		buffer_append_float32(send_buffer, mcpwm_foc_get_iq(), 1e2, &ind);          // 88, 89, 90, 91
+		buffer_append_float16(send_buffer, mcpwm_foc_get_model_speed(), 1e2, &ind); // 92, 93 
+		buffer_append_float16(send_buffer, mcpwm_foc_get_f_combine(), 1e1, &ind);   // 94, 95
+		buffer_append_float32(send_buffer, mcpwm_foc_get_iq_set(), 1e4, &ind);      // 96, 97, 98, 99
+		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_theta(), 1e4, &ind);    // 100, 101, 102, 103
+		buffer_append_float32(send_buffer, mcpwm_foc_get_kalman_omega(), 1e4, &ind);// 104, 105, 106, 107
+		buffer_append_float32(send_buffer, mcpwm_foc_get_tp_observed(), 1e4, &ind); // 108, 109, 110, 111
+		buffer_append_int32(send_buffer, mcpwm_get_param_index(), &ind);            // 116, 117, 118, 119
+		buffer_append_float32(send_buffer, mcpwm_foc_get_i_res(), 1e6, &ind);       // 120, 121, 122, 123
+		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_angle_sp(), 1e4, &ind); // 124, 125, 126, 127
+		buffer_append_float32(send_buffer, mcpwm_get_param_from_index(), 1e3, &ind);// 128, 129, 130, 131
+		buffer_append_float32(send_buffer, (float)(1.001) , 1e3, &ind);              // 132, 133, 134, 135
+		buffer_append_float32(send_buffer, (float)(2.002) , 1e3, &ind);              // 136, 137, 138, 139
+		buffer_append_float32(send_buffer, (float)(3.003) , 1e3, &ind);              // 140, 141, 142, 143
+		buffer_append_float32(send_buffer, (float)(4.004) , 1e3, &ind);              // 144, 145, 146, 147
+		buffer_append_float32(send_buffer, (float)(5.005) , 1e3, &ind);              // 148, 149, 150, 151
+		buffer_append_float32(send_buffer, (float)(6.006) , 1e3, &ind);              // 152, 153, 154, 155
+		buffer_append_float32(send_buffer, (float)(7.007) , 1e3, &ind);              // 156, 157, 158, 159
+		buffer_append_float32(send_buffer, (float)(8.008) , 1e3, &ind);              // 160, 161, 162, 163
+		buffer_append_float32(send_buffer, (float)(9.009) , 1e3, &ind);              // 164, 165, 166, 167
+		buffer_append_int32(send_buffer, (int32_t)(0b001010101) , &ind);   			 // 168, 169, 170, 171	
+
+		reply_func(send_buffer, ind);
+		mempools_free_packet_buffer(send_buffer);
+
+	}break;
 
 	case COMM_SET_DUTY: {
 		int32_t ind = 0;
