@@ -301,6 +301,7 @@ typedef struct {
 	float p_k_area;
 	float p_height;
 	float p_speed_limit_pos_control_activation;
+	float p_incline_deg;
 
 	//adrc tunables
 	float p_fo_hz;      // = 40.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor

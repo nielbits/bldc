@@ -673,9 +673,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	// Plant parameters
 	float gear_ratio = motor->gear_ratio_bike;
-	float incline = 0.000f;
 	float gearing = (float)(motor->p_mech_gearing / gear_ratio);
-	float slope = incline * 3.14159265359f / 180.0f;
+	float slope = motor->p_incline_deg * 3.14159265359f / 180.0f;
 
 	float speed = rpm / (9.54929f * (motor->m_conf->si_motor_poles / 2)) * motor->p_wheel_radius / gearing;
 
@@ -687,7 +686,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float Area_s = motor->p_k_area * motor->p_height * motor->p_height;
 	float F_air = 0.5f * motor->p_air_ro * motor->p_c_air * Area_s * speed * fabsf(speed);
 	float F_roll = smooth_factor * (motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope));
-	float F_incline = motor->p_weight * 9.81f * sinf(slope);
+	float F_incline = smooth_factor * motor->p_weight * 9.81f * sinf(slope);
 	float F_bearings = smooth_factor * (motor->p_c_bw * motor->p_k_v_bw) * speed;
 
 	float F_combine = (F_air + F_roll + F_incline + F_bearings);
@@ -716,14 +715,14 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// === FREEWHEEL: engage/disengage using RPMs ===
 	// Wheel RPM (from virtual plant setpoint)
 	float FW_SLIP_ON_RPM,FW_SLIP_REENG,FW_T_DISENG,FW_T_REENG,FW_T_DISENG_FORCED; 
-	FW_SLIP_ON_RPM =15.0f; // disengage if wheel outruns by >20 rpm
+	//FW_SLIP_ON_RPM =15.0f; // disengage if wheel outruns by >20 rpm
 	FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
-	FW_T_REENG      = 1.00f;   // Nm rider push to re-engage
-	FW_T_DISENG = -1.00f;
-	FW_T_DISENG_FORCED=-10.0f;
+	FW_T_REENG      = 2.00f;   // Nm rider push to re-engage
+	FW_T_DISENG = motor->p_kd_pos;
+	FW_T_DISENG_FORCED=-20.0f;
 	// thresholds (tune or move to config)
 	float wheel_erpm = motor->d_erpm_soll ;
-	float erpm_ratio_freewheel_disengage= 0.9f;
+	float erpm_ratio_freewheel_disengage= 0.90f;
 	float erpm_ratio_forced_disengage = 0.7f;
 
 	// Crank/motor RPM 
@@ -733,8 +732,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 
 
-
-	if (!(motor->forced_freewheel || motor->freewheel_active) && (motor_erpm<= wheel_erpm * erpm_ratio_freewheel_disengage) && (motor->ctrl_sm_state == CTRL_SM_ENABLE) && (motor->tp_observed <FW_T_DISENG_FORCED)) 
+	if (!(motor->forced_freewheel || motor->freewheel_active) && (motor_erpm<= wheel_erpm * erpm_ratio_forced_disengage) && (motor->ctrl_sm_state == CTRL_SM_ENABLE) && (motor->tp_observed <FW_T_DISENG_FORCED)) 
 	{
 		motor->forced_freewheel = true;
 	}
@@ -743,19 +741,9 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	if (motor->freewheel_enabled || motor->forced_freewheel) {
 
-		/*	if (motor_erpm<300){
-			FW_T_REENG=0.1f;
-		}
-		else if (motor->forced_freewheel)
-		{
-			FW_T_REENG=0.6f;
-		}	
-		else{
-			FW_T_REENG=0.5f;
-		}
-		*/
+
 		if (!motor->freewheel_active) {
-			if ((motor->tp_observed <= FW_T_DISENG)) {
+			if ((motor->tp_observed <= FW_T_DISENG||(motor_erpm<= wheel_erpm * erpm_ratio_freewheel_disengage))) {
 				motor->freewheel_active = true;
 			}
 		} else {
@@ -906,10 +894,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	if (!conf_now->s_pid_allow_braking) {
 		if (rpm > 20.0f && output < 0.0f) output = 0.0f;
 		if (rpm < -20.0f && output > 0.0f) output = 0.0f;
-	}
-
-	if (motor->freewheel_active || motor->forced_freewheel) {
-	
 	}
 
 	if (fw) {

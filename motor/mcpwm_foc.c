@@ -396,6 +396,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_kp_pos =m_motor_1.m_conf->p_pid_kp;
 	m_motor_1.p_ki_pos =m_motor_1.m_conf->p_pid_ki;
 	m_motor_1.p_kd_pos =0.0f;
+	m_motor_1.p_incline_deg=0.0f;
 
 	m_motor_1.ctrl_sm_still_cycles = 0;
 	m_motor_1.ctrl_sm_state = CTRL_SM_START;
@@ -5392,14 +5393,14 @@ float mcpwm_get_param_from_index(void) {
 	case 19: v = m->p_ki_pos; break;
 	case 20: v = m->p_kd_pos; break;
 	case 21: v = m->p_J; break;
-	case 22: v = m->p_kT; break;
+	case 22: v = m->p_incline_deg; break;
 	case 23: v = m->p_mech_gearing; break;
 	case 24: v = (float)m->forced_freewheel; break;
 	case 25: v = (float)m->freewheel_enabled; break;
 	case 26: break;
 	default:
 		// unknown index -> leave as 0.0
-		v = 500.0f;
+		v = 500.0;
 		break;
 	}
 
@@ -5441,7 +5442,12 @@ void mcpwm_set_param_from_index(float param) {
 	case 22: m->p_kT = v; break;
 	case 23: m->p_mech_gearing = v; break;
 	case 24: m->forced_freewheel = (bool)v; break;
-	case 25: m->freewheel_enabled = (bool)v; break;
+	case 25:
+		if (v>=0.5f ){
+			m->freewheel_enabled = true;
+		} else {
+			m->freewheel_enabled = false;
+		} break;
 	case 26: break;
 	default:
 		// unknown index -> do nothing
