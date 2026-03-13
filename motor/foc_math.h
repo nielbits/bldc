@@ -267,19 +267,12 @@ typedef struct {
 	float c_v_q_ff;
 
 	//trapezoidal integration and tp observer int
-	int_fast64_t last_accel;
-	int_fast64_t integrated_value;
 
-	int_fast64_t accel_ist;
+
+	float accel_ist;
 
 	int_fast64_t tp_observed_fp;  
 
-	int_fast64_t m_motor_rads_filtered_diff_fp;  // fixed-point filtered angular accel
-	int_fast64_t m_motor_rpm_previous_rad_fp;
-	int_fast64_t accel_filtered_fp;  // filtered acceleration (scaled)
-
-	float m_motor_rpm_previous_rad;       // last omega value (rad/s)
-	float m_motor_rads_filtered_diff;
 	//soll speed (model speed)
 	float d_speed_soll;
 	float d_f_motor;
@@ -302,6 +295,9 @@ typedef struct {
 	float p_height;
 	float p_speed_limit_pos_control_activation;
 	float p_incline_deg;
+	float p_incline_filtered;
+	float p_gear_ratio_filtered;
+
 
 	//adrc tunables
 	float p_fo_hz;      // = 40.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
@@ -315,6 +311,7 @@ typedef struct {
 	float p_ki_pos;
 	float p_kd_pos;
 	float leso_z4; // [rad/s^3]
+	float T_f_combine;//torque caused by_ combined forces (air, rolling, incline, bearings) at speed limit activation point. Used for feedforward compensation in position control.
 
 	// --- freewheel state ---
 	bool forced_freewheel;
@@ -327,10 +324,6 @@ typedef struct {
 
 	float  model_v;
 	float model_accel_prev;
-
-	int_fast64_t omega_fp;              // scaled rad/s
-	int_fast64_t omega_filtered_fp;     // filtered scaled speed
-	
 
 	float Tf_hat;
 	bool bigmotor;
@@ -370,13 +363,10 @@ typedef struct {
 	float leso_th;    // theta_hat [rad]
 	float leso_om;    // omega_hat [rad/s]
 	float leso_z;     // disturbance acceleration z_hat [rad/s^2]
-	float leso_th_ref;
-	float leso_th_prev;   // init trapezoid memory
-    float leso_Te_prev;
-	float leso_om_fd;
 
 	float Tdist_total_hat;     // Nm  (total matched disturbance torque estimate)
 	float Tdist_total_hat_f;   // Nm  (LPF version for cancellation)
+
 	// Te_feed_forward
 	float Te_set;         // (optional) motor torque setpoint [Nm] for logging
 	float iq_set_ff;      // (optional) current feedforward [A]
@@ -390,14 +380,13 @@ typedef struct {
 
 
 
-		// --- Angle Unwrapping using encoder_read_deg()
+	// --- Angle Unwrapping using encoder_read_deg()
 	float kalman_last_angle_rad;          // Last raw mechanical angle in degrees
 	float kalman_last_delta_rad;          // Last raw mechanical angle in degrees
-	int32_t kalman_rev_counter;     // Mechanical revolution counter
-	float kalman_fine_rad;          // Fine angle in [0, 2π) radians
-	float ekf_rpm;
 
-	float fric_db_rad_s;
+	float speed_out_pos_controller;
+	float speed_error;
+
 
 	int param_index;
 	float param_value;

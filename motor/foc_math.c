@@ -672,9 +672,11 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->kalman_last_delta_rad = delta_rad;
 
 	// Plant parameters
-	float gear_ratio = motor->gear_ratio_bike;
+	UTILS_LP_FAST(motor->p_gear_ratio_filtered, motor->gear_ratio_bike, 0.001f);
+	float gear_ratio = motor->p_gear_ratio_filtered;
 	float gearing = (float)(motor->p_mech_gearing / gear_ratio);
-	float slope = motor->p_incline_deg * 3.14159265359f / 180.0f;
+	UTILS_LP_FAST(motor->p_incline_filtered, motor->p_incline_deg, 0.0001f);
+	float slope = motor->p_incline_filtered* 3.14159265359f / 180.0f;
 
 	float speed = rpm / (9.54929f * (motor->m_conf->si_motor_poles / 2)) * motor->p_wheel_radius / gearing;
 
@@ -718,7 +720,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	//FW_SLIP_ON_RPM =15.0f; // disengage if wheel outruns by >20 rpm
 	FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
 	FW_T_REENG      = 2.00f;   // Nm rider push to re-engage
-	FW_T_DISENG = motor->p_kd_pos;
+	FW_T_DISENG = 0.0f;
 	FW_T_DISENG_FORCED=-20.0f;
 	// thresholds (tune or move to config)
 	float wheel_erpm = motor->d_erpm_soll ;
@@ -838,7 +840,9 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// ==================== Speed loop (PI recommended) ====================
 	// NOTE: For a PIV cascade, set conf_now->s_pid_kd = 0 (or very small).
 	float error = speed_ref_erpm - rpm;
+	motor->speed_error = error;
 
+	
 	p_term = error * sp_kp_eff * (1.0f / 20.0f);
 
 	// Optional D (recommend 0 for cascade)
@@ -849,14 +853,14 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->m_speed_prev_error = error;
 
 	// Feedforward torque
-	float T_res = F_combine * motor->p_wheel_radius / gearing;
+	motor->T_f_combine = F_combine * motor->p_wheel_radius / gearing;
 	
 
 	float speed_ratio2 = erpm_abs_meas / 100.0f;
 	float smooth_factor2 = speed_ratio2;
 	if (smooth_factor2 > 1.0f) smooth_factor2 = 1.0f;
 	//float Te_ff = (-motor->Text_ext_hat_f - T_res)*smooth_factor2;
-	float Te_ff = (-motor->Text_ext_hat_f)*smooth_factor2*motor->p_adrc_scale;
+	float Te_ff = (-motor->Text_ext_hat_f-motor->T_f_combine)*smooth_factor2*motor->p_adrc_scale;
 
 	
 
@@ -866,7 +870,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
 	float iq_ff = motor->iq_set_ff;
 	utils_truncate_number_abs(&iq_ff, motor->m_conf->l_current_max);
-	motor->d_i_res =-iq_ff;
+
 	float iq_ff_norm = iq_ff / (conf_now->lo_current_max * conf_now->l_current_max_scale);
 
 	motor->c_v_q_ff = iq_ff * motor->m_res_est;
@@ -885,7 +889,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		}
 		utils_truncate_number_abs(&motor->m_speed_i_term, 1.0f);
 	}
-	motor->d_speed_soll = p_term_pos;// motor->model_v;
+	motor->d_speed_soll = motor->model_v;// p_term_pos;
 	// Controller output (CASCADE): speed loop + FF only
 	float output = p_term + motor->m_speed_i_term + d_term + iq_ff_norm;
 	utils_truncate_number_abs(&output, 1.0f);
@@ -921,7 +925,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 		motor->Te_set = 0.0f;
 	}
 
-	
+	motor->d_i_res =-iq_ff;
     // Hard gate: controller only runs in ENABLE
 
 	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;

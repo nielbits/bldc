@@ -368,11 +368,6 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.m_ang_hall_int_prev = -1;
 
 
-
-
-	//HERE HERE HERE
-	m_motor_1.last_accel = 0.0f;
-	m_motor_1.integrated_value = 0.0f;
 	
 	//parameter initialization
 	m_motor_1.p_air_ro=1.2f; //air density
@@ -387,7 +382,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_k_v_bw= 0.00001f;
 	m_motor_1.p_k_area =0.14f;//0.14
 	m_motor_1.p_height =1.75f;
-	m_motor_1.p_fo_hz= 30.0f;      // = 8.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
+	m_motor_1.p_fo_hz= 40.0f;      // = 8.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
     m_motor_1.p_gz_hz=0.2f;      // = 0.20f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
     m_motor_1.p_fc_TLPF= 100.f; 	  // = 200.0f;   
 	m_motor_1.p_adrc_scale= 1.0f; // 
@@ -398,6 +393,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_kd_pos =0.0f;
 	m_motor_1.p_incline_deg=0.0f;
 
+
+	
 	m_motor_1.ctrl_sm_still_cycles = 0;
 	m_motor_1.ctrl_sm_state = CTRL_SM_START;
 	m_motor_1.forced_freewheel= false;
@@ -424,7 +421,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.leso_om = 0.0f;
 	m_motor_1.leso_z  = 0.0f;
 
-	m_motor_1.leso_Te_prev = 0.0f;
+
 
 	m_motor_1.Text_ext_hat   = 0.0f;
 	m_motor_1.Text_ext_hat_f = 0.0f;
@@ -445,57 +442,36 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.Tf_hat = 0.0f;
 	m_motor_1.leso_omega_in=0.0f;
 
-
-	// only if these two are indeed members of m_motor_1 (not just locals):
-	m_motor_1.omega_fp = 0;
-	m_motor_1.omega_filtered_fp = 0;
-
-
+	
 	m_motor_1.gear_ratio_bike =  2.575f; //default 2.575
-	m_motor_1.bigmotor=true;
 
 
-	if (m_motor_1.bigmotor){
+	m_motor_1.p_J= 0.0730f;
+	m_motor_1.p_kT= (float)(1.5f*0.01927f *23.0f);
+	m_motor_1.p_mech_gearing=(240.0f/92.2f);
+	m_motor_1.p_B= 0.0576f;
+	m_motor_1.p_Tc= 2.0*m_motor_1.p_kT;           // <-- add this parameter to motor_all_state_t
+	m_motor_1.p_Tc_ws= 1.0f; 
 
-		m_motor_1.p_J= 0.0730f;
-		m_motor_1.p_kT= (float)(1.5f*0.01927f *23.0f);
-		m_motor_1.p_mech_gearing=(240.0f/92.2f);
-		m_motor_1.p_B= 0.0576f;
-		m_motor_1.p_Tc= 2.0*m_motor_1.p_kT;           // <-- add this parameter to motor_all_state_t
-    	m_motor_1.p_Tc_ws= 1.0f; 
 
-	}
-	else
-	{
-		
-		m_motor_1.p_kT= (float)(1.5f*0.00455f *7.0f);
-		m_motor_1.p_J= 0.003379f;
-		m_motor_1.p_mech_gearing=(200.0f/25.0f)*(70.0f/25.0f);
-	}
-
-	//kalman filter initialization
-
+	//initialization
 
 
 	float angle_deg0 = encoder_read_deg();                 // deg
 	if (!isfinite(angle_deg0)) { angle_deg0 = 0.0f; }      // guard on very early boot
 	float angle_rad0 = angle_deg0 * (M_PI / 180.0f);       // rad
-		// Unwrap helpers
-	m_motor_1.leso_th_ref=angle_rad0;
-	m_motor_1.leso_th_prev = angle_rad0;
-	m_motor_1.leso_om_fd=0.0f;
 
 	m_motor_1.kalman_last_angle_rad = angle_rad0;          // last raw
 	m_motor_1.kalman_last_delta_rad = 0.0f;
-	m_motor_1.kalman_rev_counter = 0;
-	m_motor_1.kalman_fine_rad = fmodf(angle_rad0, 2.0f * (float)M_PI);
+
 	m_motor_1.unwrapped_theta = angle_rad0;                // start unwrapped here
 	m_motor_1.Tdist_total_hat = 0.0f;
 	m_motor_1.Tdist_total_hat_f = 0.0f;
 	//parameter changes during operation
 	m_motor_1.param_index=1;
 	m_motor_1.param_value=2.0f;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
-
+	m_motor_1.p_incline_filtered=0.0f;
+	m_motor_1.p_gear_ratio_filtered=3.0f;
 
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
@@ -5321,9 +5297,20 @@ float mcpwm_foc_get_tf(void){
 float mcpwm_foc_get_uw_angle_sp(void){
 	return get_motor_now()->model_pos_set_model;
 }
-float calculate_crossover_freq(float T1, float T2) {
-    return 1.0f / (2.0f * M_PI * sqrtf(T1 * T2));
+
+float mcpwm_foc_get_pos_term_speed(void){
+	return get_motor_now()->speed_out_pos_controller;
 }
+float mcpwm_foc_get_speed_error(void){
+	return get_motor_now()->speed_error;
+}
+
+
+float mcpwm_foc_t_f_combine(void){
+	return get_motor_now()->T_f_combine;
+}
+
+
 
 //parameter change functions
 // Parameter index/value helpers.
@@ -5395,7 +5382,7 @@ float mcpwm_get_param_from_index(void) {
 	case 21: v = m->p_J; break;
 	case 22: v = m->p_incline_deg; break;
 	case 23: v = m->p_mech_gearing; break;
-	case 24: v = (float)m->forced_freewheel; break;
+	case 24: v = m->p_incline_deg; break;
 	case 25: v = (float)m->freewheel_enabled; break;
 	case 26: break;
 	default:
@@ -5439,9 +5426,9 @@ void mcpwm_set_param_from_index(float param) {
 	case 19: m->p_ki_pos = v; break;
 	case 20: m->p_kd_pos = v; break;
 	case 21: m->p_J = v; break;
-	case 22: m->p_kT = v; break;
+	case 22: m->p_incline_deg  = v; break;
 	case 23: m->p_mech_gearing = v; break;
-	case 24: m->forced_freewheel = (bool)v; break;
+	case 24: m->p_incline_deg = v; break;
 	case 25:
 		if (v>=0.5f ){
 			m->freewheel_enabled = true;
