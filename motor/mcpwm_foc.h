@@ -104,7 +104,7 @@ void mcpmw_set_param_index(int index);
 int  mcpwm_get_param_index(void);
 void mcpwm_set_param_from_index(float param);
 float mcpwm_get_param_from_index(void);
-
+float mcpwm_get_incline_deg_ist(void);
 
 
 //

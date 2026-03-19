@@ -542,20 +542,30 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	}
 
 	float rpm = 0.0f;
+	float t_rpm = 0.0f;
 
 	float erpm = fabsf(motor->d_erpm_soll);
+	float clamp = 30000.0f;
+
 
 	switch (conf_now->s_pid_speed_source) {
 	case S_PID_SPEED_SRC_PLL:
-		rpm = RADPS2RPM_f(motor->m_pll_speed);
+		t_rpm = RADPS2RPM_f(motor->m_pll_speed);
 		break;
 	case S_PID_SPEED_SRC_FAST:
-		rpm = RADPS2RPM_f(motor->m_speed_est_fast);
+		t_rpm = RADPS2RPM_f(motor->m_speed_est_fast);
 		break;
 	case S_PID_SPEED_SRC_FASTER:
-		rpm = RADPS2RPM_f(motor->m_speed_est_faster);
+		t_rpm = RADPS2RPM_f(motor->m_speed_est_faster);
 		break;
 	}
+	if (fabsf(t_rpm) > clamp) {
+		rpm=motor->last_rpm;
+	}
+	else{
+		rpm= t_rpm;
+	}
+	
 
 	motor->last_rpm = rpm;
 	ctrl_sm_state_t prev = motor->ctrl_sm_state;	
@@ -574,6 +584,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         motor->ctrl_sm_still_cycles = 0;
         if (index_found) {
             motor->ctrl_sm_state = CTRL_SM_INDEX_FOUND;
+			motor->unwrapped_theta= 0.0f;
         }
         break;
 
@@ -675,8 +686,31 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	UTILS_LP_FAST(motor->p_gear_ratio_filtered, motor->gear_ratio_bike, 0.001f);
 	float gear_ratio = motor->p_gear_ratio_filtered;
 	float gearing = (float)(motor->p_mech_gearing / gear_ratio);
-	UTILS_LP_FAST(motor->p_incline_filtered, motor->p_incline_deg, 0.0001f);
-	float slope = motor->p_incline_filtered* 3.14159265359f / 180.0f;
+	motor->p_incline_deg = motor->m_conf->p_pid_kd_proc;
+	UTILS_LP_FAST(motor->p_incline_filtered, motor->p_incline_deg, 0.01f);
+
+	float incline_base_deg = motor->p_incline_filtered ;
+	float incline_deg_cmd = incline_base_deg;
+
+	if (motor->pumptrack_enabled) {
+		float T_sec = motor->pumptrack_period_min * 60.0f;
+		if (T_sec < 1e-4f) T_sec = 1e-4f;
+
+		motor->pumptrack_time += dt;
+		if (motor->pumptrack_time >= T_sec) {
+			motor->pumptrack_time -= T_sec * floorf(motor->pumptrack_time / T_sec);
+		}
+
+		float phase = 2.0f * (float)M_PI * motor->pumptrack_time / T_sec - 0.5f * (float)M_PI;
+		incline_deg_cmd = 0.5f * incline_base_deg * (1.0f + sinf(phase));
+	} else {
+		incline_deg_cmd = incline_base_deg;
+		motor->pumptrack_time = 0.0f;
+	}
+
+	float slope = incline_deg_cmd * 3.14159265359f / 180.0f * SIGN(motor->d_erpm_soll);
+	motor->incline_result = incline_deg_cmd;
+
 
 	float speed = rpm / (9.54929f * (motor->m_conf->si_motor_poles / 2)) * motor->p_wheel_radius / gearing;
 
@@ -716,53 +750,71 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	// or if the rider applies a certain amount of positive torque (pedal push) to re-engage.
 	// === FREEWHEEL: engage/disengage using RPMs ===
 	// Wheel RPM (from virtual plant setpoint)
-	float FW_SLIP_ON_RPM,FW_SLIP_REENG,FW_T_DISENG,FW_T_REENG,FW_T_DISENG_FORCED; 
-	//FW_SLIP_ON_RPM =15.0f; // disengage if wheel outruns by >20 rpm
-	FW_SLIP_REENG  = 20.0f;   // disengage if wheel outruns by >20 rpm
-	FW_T_REENG      = 2.00f;   // Nm rider push to re-engage
-	FW_T_DISENG = 0.0f;
-	FW_T_DISENG_FORCED=-20.0f;
-	// thresholds (tune or move to config)
-	float wheel_erpm = motor->d_erpm_soll ;
-	float erpm_ratio_freewheel_disengage= 0.90f;
-	float erpm_ratio_forced_disengage = 0.7f;
+	// Freewheeling logic
+// Tproj = torque projected onto wheel direction:
+//   Tproj > 0  -> rider pushes in travel direction
+//   Tproj < 0  -> rider opposes travel direction
 
-	// Crank/motor RPM 
-	float motor_erpm = RADPS2RPM_f(motor->m_pll_speed);
+float FW_SLIP_REENG;
+float FW_T_DISENG, FW_T_REENG, FW_T_DISENG_FORCED;
 
-	float slip_rpm = (motor_erpm-wheel_erpm)/ (motor->m_conf->si_motor_poles / 2.0f);
+// Wheel ERPM (virtual plant setpoint)
+float wheel_erpm = motor->d_erpm_soll;
+float speed_dir = SIGN(wheel_erpm);
 
+// Thresholds
+FW_SLIP_REENG       = 20.0f;   // re-engage if slip < 20 rpm
+FW_T_REENG          = 2.0f;    // projected rider torque to re-engage
+FW_T_DISENG         = 0.0f;    // disengage when rider no longer pushes forward
+FW_T_DISENG_FORCED  = -20.0f;  // strong opposing rider torque => forced freewheel
 
+float erpm_ratio_freewheel_disengage = 0.90f;
+float erpm_ratio_forced_disengage    = 0.70f;
 
-	if (!(motor->forced_freewheel || motor->freewheel_active) && (motor_erpm<= wheel_erpm * erpm_ratio_forced_disengage) && (motor->ctrl_sm_state == CTRL_SM_ENABLE) && (motor->tp_observed <FW_T_DISENG_FORCED)) 
-	{
-		motor->forced_freewheel = true;
-	}
-	
-	
+// Crank/motor ERPM
+float motor_erpm = RADPS2RPM_f(motor->m_pll_speed);
 
-	if (motor->freewheel_enabled || motor->forced_freewheel) {
+// Mechanical slip in RPM
+float pole_pairs = motor->m_conf->si_motor_poles / 2.0f;
+float slip_rpm = (motor_erpm - wheel_erpm) / pole_pairs;
 
+// Project observed pedal torque onto travel direction
+// >0  => helps vehicle motion
+// <0  => opposes vehicle motion
+float Tproj = speed_dir * motor->tp_observed;
 
-		if (!motor->freewheel_active) {
-			if ((motor->tp_observed <= FW_T_DISENG||(motor_erpm<= wheel_erpm * erpm_ratio_freewheel_disengage))) {
-				motor->freewheel_active = true;
-			}
-		} else {
-			if (motor->tp_observed > FW_T_REENG && fabsf(slip_rpm)<FW_SLIP_REENG) {
-				motor->freewheel_active = false;
-				motor->forced_freewheel= false;
-				motor->model_pos_i_term=0.0f;		
-				// Track measured position: no accumulating position error while decoupled
-				motor->model_pos_set_model = motor->unwrapped_theta_filtered;
-			}
-		}
-	}else
-	{
-		motor->freewheel_active = false;
-		motor->forced_freewheel= false;
-	}
+// Forced freewheel:
+// If the motor is much slower than the virtual wheel and the rider strongly opposes motion,
+// force disengagement.
+if (!(motor->forced_freewheel || motor->freewheel_active) &&
+    (fabsf(motor_erpm) <= fabsf(wheel_erpm) * erpm_ratio_forced_disengage) &&
+    (motor->ctrl_sm_state == CTRL_SM_ENABLE) &&
+    (Tproj < FW_T_DISENG_FORCED)) {
+    motor->forced_freewheel = true;
+}
 
+if (motor->freewheel_enabled || motor->forced_freewheel) {
+    if (!motor->freewheel_active) {
+        // Enter freewheel if rider is not driving forward anymore,
+        // or if motor speed falls sufficiently below wheel speed.
+        if ((Tproj <= FW_T_DISENG) ||
+            (fabsf(motor_erpm) <= fabsf(wheel_erpm) * erpm_ratio_freewheel_disengage)) {
+            motor->freewheel_active = true;
+        }
+    } else {
+        // Re-engage only when rider pushes forward again and slip is small enough.
+        if ((Tproj > FW_T_REENG) &&
+            (fabsf(slip_rpm) < FW_SLIP_REENG)) {
+            motor->freewheel_active = false;
+            motor->forced_freewheel = false;
+            motor->model_pos_i_term = 0.0f;
+            motor->model_pos_set_model = motor->unwrapped_theta_filtered;
+        }
+    }
+} else {
+    motor->freewheel_active = false;
+    motor->forced_freewheel = false;
+}
 
 	const bool fw = (motor->freewheel_active || motor->forced_freewheel);
 	// ================= Model integration (FLOAT, trapezoidal) =================
@@ -831,6 +883,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	pos_corr_raw = p_term_pos + motor->model_pos_i_term;
 	pos_corr_sat = pos_corr_raw;
 	utils_truncate_number_abs(&pos_corr_sat, pos_corr_erpm_max);
+	motor->speed_out_pos_controller =pos_corr_sat;
 
 	// Final speed reference (ERPM) = base speed setpoint + position correction
 	float speed_ref_erpm = omega_mech * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f) + pos_corr_sat;
@@ -860,7 +913,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float smooth_factor2 = speed_ratio2;
 	if (smooth_factor2 > 1.0f) smooth_factor2 = 1.0f;
 	//float Te_ff = (-motor->Text_ext_hat_f - T_res)*smooth_factor2;
-	float Te_ff = (-motor->Text_ext_hat_f-motor->T_f_combine)*smooth_factor2*motor->p_adrc_scale;
+	float Te_ff = (-motor->Text_ext_hat_f)*smooth_factor2*motor->p_adrc_scale;
 
 	
 
@@ -1159,9 +1212,10 @@ inline void leso3_step(
     const float J = m->p_J; if (!(J > 0.0f)) return;
 
     const float fo_hz   = m->p_fo_hz;
+	//const float fo_hz   = m->m_conf->p_pid_offset;// p_fo_hz;
     const float gz_hz   = m->p_gz_hz;
     const float fc_TLPF = m->p_fc_TLPF;
-
+	//const float fc_TLPF = m->m_conf->p_pid_gain_dec_angle;// p_fc_TLPF;
     const float B  = m->p_B;
     const float b0 = 1.0f / J;
 

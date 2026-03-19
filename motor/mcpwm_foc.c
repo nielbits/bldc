@@ -382,9 +382,9 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_k_v_bw= 0.00001f;
 	m_motor_1.p_k_area =0.14f;//0.14
 	m_motor_1.p_height =1.75f;
-	m_motor_1.p_fo_hz= 35.0f;      // = 8.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
+	m_motor_1.p_fo_hz= 25.0f;      // = 8.0f;          // observer bandwidth (try 10–18 Hz)//100Hz //8Hz for small motor
     m_motor_1.p_gz_hz=0.2f;      // = 0.20f;           // tiny leak on z to suppress random-walk hiss (0–0.7 Hz)
-    m_motor_1.p_fc_TLPF= 100.f; 	  // = 200.0f;   
+    m_motor_1.p_fc_TLPF= 100.0f; 	  // = 200.0f;   
 	m_motor_1.p_adrc_scale= 1.0f; // 
 	m_motor_1.p_speed_limit_pos_control_activation =400.0f; // Speed limit for position control activation
 	m_motor_1.leso_z4 = 0.0f;	
@@ -393,6 +393,10 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_kd_pos =0.0f;
 	m_motor_1.p_incline_deg=0.0f;
 
+
+	m_motor_1.pumptrack_enabled = false;
+	m_motor_1.pumptrack_time=0.0f;
+	m_motor_1.pumptrack_period_min=0.5f;
 
 
 	m_motor_1.ctrl_sm_still_cycles = 0;
@@ -5348,6 +5352,10 @@ int mcpwm_get_param_index(void) {
 	return get_motor_now()->param_index;
 }
 
+float mcpwm_get_incline_deg_ist(void) {
+	return get_motor_now()->incline_result;
+}
+
 // Read the field selected by param_index into motor->param_value.
 float mcpwm_get_param_from_index(void) {
 	volatile motor_all_state_t *m = (volatile motor_all_state_t*)get_motor_now();
@@ -5382,7 +5390,7 @@ float mcpwm_get_param_from_index(void) {
 	case 21: v = m->p_J; break;
 	case 22: v = m->p_incline_deg; break;
 	case 23: v = m->p_mech_gearing; break;
-	case 24: v = m->p_incline_deg; break;
+	case 24: v = (float)m->pumptrack_enabled; break;
 	case 25: v = (float)m->freewheel_enabled; break;
 	case 26: break;
 	default:
@@ -5428,7 +5436,12 @@ void mcpwm_set_param_from_index(float param) {
 	case 21: m->p_J = v; break;
 	case 22: m->p_incline_deg  = v; break;
 	case 23: m->p_mech_gearing = v; break;
-	case 24: m->p_incline_deg = v; break;
+	case 24:
+		if (v>=0.5f ){
+			m->pumptrack_enabled = true;
+		} else {
+			m->pumptrack_enabled = false;
+		} break;
 	case 25:
 		if (v>=0.5f ){
 			m->freewheel_enabled = true;

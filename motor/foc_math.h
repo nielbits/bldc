@@ -313,6 +313,11 @@ typedef struct {
 	float leso_z4; // [rad/s^3]
 	float T_f_combine;//torque caused by_ combined forces (air, rolling, incline, bearings) at speed limit activation point. Used for feedforward compensation in position control.
 
+	bool pumptrack_enabled;
+	float pumptrack_time;
+	float pumptrack_period_min;
+	float incline_result;
+	
 	// --- freewheel state ---
 	bool forced_freewheel;
 	bool freewheel_enabled;
@@ -326,8 +331,6 @@ typedef struct {
 	float model_accel_prev;
 
 	float Tf_hat;
-	bool bigmotor;
-
 
 
 	ctrl_sm_state_t ctrl_sm_state;
@@ -415,22 +418,25 @@ float band_pass_filter(float input,float centerFreq,   float bandwidth, float sa
 //static inline float dTf_domega(float omega, float b);
 //static inline void stribeck_tf_and_dtf(    const motor_all_state_t *m,    float omega,    float *Tf_out,    float *dTf_out);
 //inline float Tf_smooth(float omega, float Tc, float B, float omega_s);
-inline void leso3_step(
+void leso3_step(
     motor_all_state_t *m,
     float dt,
     float Te_meas,
     float theta_meas,
 	float omega
 );
+float clampf(float x, float lo, float hi);
+float slew_limit(float x, float x_prev, float rate, float dt);
+float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1);
+float map_floor(float m, float floor);
+float ramp_rational_x0(float x, float x0, float p);
 
-
+/*
 inline float falf(float e, float alpha, float delta);
 inline float ramp_rational_ref(float x, float x_ref, float p);
-inline float map_floor(float m, float floor);
-inline float ramp_rational_x0(float x, float x0, float p);
-inline float clampf(float x, float lo, float hi);
-inline float slew_limit(float x, float x_prev, float rate, float dt);
-inline float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1);
+
+
+
 float fal_gain(float e, float alpha, float delta, float g0);
 float smooth_force(float mag, float v, float v_eps);
 inline float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1);
@@ -446,4 +452,6 @@ inline void nleso4_step_ext_torque(
     float theta_meas,
     float omega_meas
 );
+
+*/
 #endif /* FOC_MATH_H_ */
