@@ -445,7 +445,10 @@ inline float fal_nleso_erpm(float e_th_rad,
                                   float delta_erpm,
                                   float dt,
                                   float pole_pairs);
-inline void nleso4_step_ext_torque(
+*/
+
+								  /*
+void nleso4_step_ext_torque(
     motor_all_state_t *m,
     float dt,
     float Te_meas,

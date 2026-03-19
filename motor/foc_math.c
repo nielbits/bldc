@@ -500,19 +500,14 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float p_term;
 	float d_term;
 	float p_term_pos;   // (repurposed: now speed-correction P in ERPM)
-	float d_term_pos;
 	float pos_error;
-	float d_term_proc_pos;
+	
 	index_found = encoder_index_found();
 
 	// Position gains (now interpreted as ERPM per rad, and ERPM/(rad*s))
 	float pos_kp = motor->m_conf->p_pid_kp;
 	float pos_ki = motor->m_conf->p_pid_ki;
-	float pos_kd = 0.0f; // motor->p_kd_pos;
-	float pos_kd_proc = conf_now->p_pid_kd_proc;
-
-
-
+	
 
 	bool ctrl_enabled = false;
 
@@ -544,7 +539,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	float rpm = 0.0f;
 	float t_rpm = 0.0f;
 
-	float erpm = fabsf(motor->d_erpm_soll);
+	
 	float clamp = 30000.0f;
 
 
@@ -1247,7 +1242,7 @@ inline void leso3_step(
     // e_th is your measurement residual (rad). We shape it nonlinearly so that
     // large "one-shot" residuals (e.g. ~700 ERPM spikes) have reduced authority,
     // while the small-signal slope remains 1 (bandwidth preserved).
-    const float e_th = theta_meas - thk;
+    //const float e_th = theta_meas - thk;
 
     float pole_pairs = 23.0f; // fallback
     if (m->m_conf) {
@@ -1255,8 +1250,8 @@ inline void leso3_step(
         if (!(pole_pairs > 0.0f)) pole_pairs = 23.0f;
     }
 
-    const float alpha_nl    = 0.8f;   // tune 0.4..0.8 (lower = more spike suppression)
-    const float delta_erpm  = 100.0f; // <-- YOU requested start at 100 ERPM
+    // const float alpha_nl    = 0.8f;   // tune 0.4..0.8 (lower = more spike suppression)
+    //const float delta_erpm  = 100.0f; // <-- YOU requested start at 100 ERPM
 
     //const float ek = fal_nleso_erpm(e_th, alpha_nl, delta_erpm, dt, pole_pairs);
 
@@ -1519,7 +1514,7 @@ inline float clampf(float x, float lo, float hi) {
 // Notes:
 // - z4 is INTERNAL ONLY: it shapes z (z3). We still use ONLY z (z3) for torque estimation.
 // - A z4 clamp is included but COMMENTED OUT for now (as requested).
-inline void nleso4_step_ext_torque(
+void nleso4_step_ext_torque(
     motor_all_state_t *m,
     float dt,
     float Te_meas,
