@@ -977,6 +977,19 @@ if (motor->freewheel_enabled || motor->forced_freewheel) {
     // Hard gate: controller only runs in ENABLE
 
 	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
+
+	motor->status_bits = 0;
+	//motor->status_bits |= (motor->m_control_mode == CONTROL_MODE_SPEED)     << STATUS_BIT_SPEED_CONTROL_ACTIVE;
+	motor->status_bits |= true     << STATUS_BIT_SPEED_CONTROL_ACTIVE;
+	motor->status_bits |= (motor->forced_freewheel)                         << STATUS_BIT_FORCED_FREEWHEEL;
+	motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_START)     << STATUS_BIT_CTRL_SM_START;
+	motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_INDEX_FOUND) << STATUS_BIT_CTRL_SM_INDEX_FOUND;
+	motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_ENABLE)    << STATUS_BIT_CTRL_SM_ENABLE;
+	motor->status_bits |= ((uint32_t)1U) << 5;
+	motor->status_bits |= ((uint32_t)1U) << 6;
+	motor->status_bits |= ((uint32_t)1U) << 7;
+	motor->status_bits |= ((uint32_t)1U) << 16;
+	motor->status_bits |= ((uint32_t)1U) << 31;
 }
 
 

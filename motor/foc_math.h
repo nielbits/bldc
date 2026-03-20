@@ -132,7 +132,14 @@ typedef enum {
 	FOC_PWM_ENABLED,
 	FOC_PWM_FULL_BRAKE
 } foc_pwm_mode;
-
+// Put this near your other local defines / enums, e.g. in the relevant motor control source file
+typedef enum {
+    STATUS_BIT_SPEED_CONTROL_ACTIVE   = 0,
+    STATUS_BIT_FORCED_FREEWHEEL       = 1,
+    STATUS_BIT_CTRL_SM_START          = 2,
+    STATUS_BIT_CTRL_SM_INDEX_FOUND    = 3,
+    STATUS_BIT_CTRL_SM_ENABLE         = 4
+} status_bits_t;
 
 typedef enum {
 	CTRL_SM_START = 0,
@@ -326,9 +333,12 @@ typedef struct {
 	//Tp observer calculations
 	float tp_observed;
 	float te_calculated;
-
+	
 	float  model_v;
 	float model_accel_prev;
+
+
+	int32_t status_bits;
 
 	float Tf_hat;
 

@@ -1245,7 +1245,7 @@ float mcpwm_foc_get_uw_theta(){
 	volatile motor_all_state_t *motor = get_motor_now();
  	return motor->unwrapped_theta;
 }
-float mcpwm_foc_get_kalman_omega(void){
+float mcpwm_foc_get_leso_omega(void){
 	volatile motor_all_state_t *motor = get_motor_now();
 	return motor->leso_om * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
 
@@ -5314,7 +5314,9 @@ float mcpwm_foc_t_f_combine(void){
 	return get_motor_now()->T_f_combine;
 }
 
-
+uint32_t mcpwm_foc_get_status_bits(void){
+	return get_motor_now()->status_bits;
+}
 
 //parameter change functions
 // Parameter index/value helpers.
