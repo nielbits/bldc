@@ -1106,6 +1106,13 @@ typedef enum {
 	
 	COMM_GET_VALUES_EXP						= 157,
 
+	COMM_SET_BIKE_RUNTIME					= 158,
+	COMM_GET_BIKE_RUNTIME					= 159,
+	COMM_SET_BIKE_SIM_PARAMS				= 160,
+	COMM_GET_BIKE_SIM_PARAMS				= 161,
+	COMM_SET_CONTROL_PARAMS					= 162,
+	COMM_GET_CONTROL_PARAMS					= 163,
+
  //added in order to be able to change gear ratio through interface(needed for FF)
 } COMM_PACKET_ID;
 

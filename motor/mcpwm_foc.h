@@ -22,6 +22,7 @@
 
 #include "conf_general.h"
 #include "datatypes.h"
+#include "foc_math.h"
 #include <stdbool.h>
 
 // Functions
@@ -166,6 +167,7 @@ float mcpwm_foc_get_uw_angle_sp(void);
 float mcpwm_foc_get_pos_term_speed(void);
 float mcpwm_foc_get_speed_error(void);
 uint32_t mcpwm_foc_get_status_bits(void);
+float mcpwm_foc_get_t_e(void);
 // Functions where the motor can be selected
 float mcpwm_foc_get_gear_ratio(void);
 float mcpwm_foc_get_tot_current_motor(bool is_second_motor);
@@ -174,6 +176,8 @@ float mcpwm_foc_get_tot_current_in_motor(bool is_second_motor);
 float mcpwm_foc_get_tot_current_in_filtered_motor(bool is_second_motor);
 float mcpwm_foc_get_abs_motor_current_motor(bool is_second_motor);
 float mcpwm_foc_get_abs_motor_current_filtered_motor(bool is_second_motor);
+void motor_update_cached_params(volatile motor_all_state_t *m);
+
 mc_state mcpwm_foc_get_state_motor(bool is_second_motor);
 
 // Interrupt handlers

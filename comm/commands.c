@@ -537,16 +537,45 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		buffer_append_float32(send_buffer, mcpwm_foc_get_speed_error(), 1e3, &ind);              // 132, 133, 134, 135
 		buffer_append_float32(send_buffer, mcpwm_foc_t_f_combine() , 1e3, &ind);              // 136, 137, 138, 139
 		buffer_append_float32(send_buffer, mcpwm_get_incline_deg_ist() , 1e3, &ind);              // 140, 141, 142, 143
-		buffer_append_float32(send_buffer, (float)(5.005) , 1e3, &ind);              // 144, 145, 146, 147
+		buffer_append_float32(send_buffer, mcpwm_foc_get_t_e() , 1e3, &ind);              // 144, 145, 146, 147
 		buffer_append_float32(send_buffer, (float)(6.006) , 1e3, &ind);              // 148, 149, 150, 151
 		buffer_append_float32(send_buffer, (float)(7.007) , 1e3, &ind);              // 152, 153, 154, 155
 		buffer_append_float32(send_buffer, (float)(8.008) , 1e3, &ind);              // 156, 157, 158, 159
 		buffer_append_float32(send_buffer, (float)(9.009) , 1e3, &ind);              // 160, 161, 162, 163
 		buffer_append_uint32(send_buffer, mcpwm_foc_get_status_bits() , &ind);   			 // 164, 165, 166, 167
 
+	
+/*
+		buffer_append_float16(send_buffer, 1.0f, 1e0, &ind);      // erpm_soll
+		buffer_append_float16(send_buffer, 2.0f, 1e4, &ind);      // tf
+		buffer_append_float32(send_buffer, 3.0f, 1e2, &ind);      // gear_ratio
+		buffer_append_float32(send_buffer, 4.0f, 1e2, &ind);      // id
+		buffer_append_float32(send_buffer, 5.0f, 1e2, &ind);      // iq
+		buffer_append_float16(send_buffer, 6.0f, 1e2, &ind);      // model_speed
+		buffer_append_float16(send_buffer, 7.0f, 1e1, &ind);      // f_combine
+		buffer_append_float32(send_buffer, 8.0f, 1e4, &ind);      // iq_set
+		buffer_append_float32(send_buffer, 9.0f, 1e4, &ind);      // uw_theta
+		buffer_append_float32(send_buffer, 10.0f, 1e4, &ind);     // leso_omega
+		buffer_append_float32(send_buffer, 11.0f, 1e4, &ind);     // tp_observed
+		buffer_append_int32(send_buffer, 12, &ind);               // param_index
+		buffer_append_float32(send_buffer, 13.0f, 1e6, &ind);     // i_res
+		buffer_append_float32(send_buffer, 14.0f, 1e4, &ind);     // uw_angle_sp
+		buffer_append_float32(send_buffer, 15.0f, 1e3, &ind);     // param_from_index
+		buffer_append_float32(send_buffer, 16.0f, 1e3, &ind);     // pos_term_speed
+		buffer_append_float32(send_buffer, 17.0f, 1e3, &ind);     // speed_error
+		buffer_append_float32(send_buffer, 18.0f, 1e3, &ind);     // t_f_combine
+		buffer_append_float32(send_buffer, 19.0f, 1e3, &ind);     // incline_deg_ist
+		buffer_append_float32(send_buffer, 20.0f, 1e3, &ind);     // dummy 5
+		buffer_append_float32(send_buffer, 21.0f, 1e3, &ind);     // dummy 6
+		buffer_append_float32(send_buffer, 22.0f, 1e3, &ind);     // dummy 7
+		buffer_append_float32(send_buffer, 23.0f, 1e3, &ind);     // dummy 8
+		buffer_append_float32(send_buffer, 24.0f, 1e3, &ind);     // dummy 9
+		buffer_append_uint32(send_buffer, 25U, &ind);             // status_bits
+
+*/
 		reply_func(send_buffer, ind);
 		mempools_free_packet_buffer(send_buffer);
-
+		timeout_reset();
 	}break;
 
 	case COMM_SET_DUTY: {

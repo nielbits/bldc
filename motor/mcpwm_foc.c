@@ -476,7 +476,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.param_value=2.0f;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
 	m_motor_1.p_incline_filtered=0.0f;
 	m_motor_1.p_gear_ratio_filtered=3.0f;
-
+	
+	motor_update_cached_params(&m_motor_1);
 
 	foc_precalc_values((motor_all_state_t*)&m_motor_1);
 	update_hfi_samples(m_motor_1.m_conf->foc_hfi_samples, &m_motor_1);
@@ -4859,6 +4860,7 @@ static void control_current(motor_all_state_t *motor, float dt) {
 
 	// Calculate the duty cycles for all the phases. This also injects a zero modulation signal to
 	// be able to fully utilize the bus voltage. See https://microchipdeveloper.com/mct5001:start
+
 	foc_svm(state_m->mod_alpha_raw, state_m->mod_beta_raw, top, &duty1, &duty2, &duty3, (uint32_t*)&state_m->svm_sector);
 
 	if (motor == &m_motor_1) {
@@ -5313,6 +5315,10 @@ float mcpwm_foc_get_speed_error(void){
 float mcpwm_foc_t_f_combine(void){
 	return get_motor_now()->T_f_combine;
 }
+float mcpwm_foc_get_t_e(void){
+	return get_motor_now()->te_calculated;
+}
+
 
 uint32_t mcpwm_foc_get_status_bits(void){
 	return get_motor_now()->status_bits;
@@ -5455,4 +5461,91 @@ void mcpwm_set_param_from_index(float param) {
 		// unknown index -> do nothing
 		break;
 	}
+}
+
+void motor_update_cached_params(volatile motor_all_state_t *m) {
+    if (!m || !m->m_conf) {
+        return;
+    }
+
+    const float two_pi = 2.0f * (float)M_PI;
+
+    // ---------------- Basic motor / unit conversion cache ----------------
+    float pole_pairs = 0.5f * (float)m->m_conf->si_motor_poles;
+    if (!(pole_pairs > 0.0f)) {
+        pole_pairs = 1.0f;
+    }
+
+    m->c_pole_pairs        = pole_pairs;
+    m->c_inv_pole_pairs    = 1.0f / pole_pairs;
+    m->c_radps_to_rpm      = 60.0f / two_pi;
+    m->c_rpm_to_radps      = two_pi / 60.0f;
+    m->c_mech_radps_to_erpm = m->c_radps_to_rpm * pole_pairs;
+    m->c_erpm_to_mech_radps = m->c_rpm_to_radps / pole_pairs;
+
+    // ---------------- Geometry / plant cache ----------------
+    m->c_area_s = m->p_k_area * m->p_height * m->p_height;
+
+    if (fabsf(m->p_wheel_radius) > 1e-9f) {
+        m->c_wheel_radius_inv = 1.0f / m->p_wheel_radius;
+    } else {
+        m->c_wheel_radius_inv = 0.0f;
+    }
+
+    // ---------------- Current normalization cache ----------------
+    float iq_norm = m->m_conf->lo_current_max * m->m_conf->l_current_max_scale;
+    if (fabsf(iq_norm) > 1e-9f) {
+        m->c_iq_norm_inv = 1.0f / iq_norm;
+    } else {
+        m->c_iq_norm_inv = 0.0f;
+    }
+
+    // ---------------- Speed scheduling cache ----------------
+    m->c_erpm_act   = m->p_speed_limit_pos_control_activation * 1.25f;
+    m->c_erpm_sat   = m->c_erpm_act * 2.0f;
+    m->c_inv_erpm_sat = (m->c_erpm_sat > 1e-9f) ? (1.0f / m->c_erpm_sat) : 0.0f;
+
+    m->c_pos_dead  = 15.0f;
+    m->c_pos_floor = 0.40f;
+    m->c_spd_floor = 0.30f;
+
+    m->c_ref_pos = m->c_erpm_sat - m->c_pos_dead;
+    if (m->c_ref_pos < 1e-6f) {
+        m->c_ref_pos = 1.0f;
+    }
+    m->c_inv_ref_pos = 1.0f / m->c_ref_pos;
+
+    // ---------------- LESO cache ----------------
+    float J = m->p_J;
+    if (!(J > 0.0f)) {
+        J = 1.0f;
+    }
+
+    m->c_b0 = 1.0f / J;
+
+    const float wo = two_pi * m->p_fo_hz;
+    m->c_b1 = 3.0f * wo;
+    m->c_b2 = 3.0f * wo * wo;
+    m->c_b3 = wo * wo * wo;
+    m->c_gz = two_pi * m->p_gz_hz;
+    m->c_fc_2pi = two_pi * m->p_fc_TLPF;
+
+    // ---------------- LESO omega plausibility cache ----------------
+    {
+        float om_abs_max = 500.0f;
+        const float erpm_max = (float)m->m_conf->l_max_erpm;
+        const float om_mech_max = (erpm_max * m->c_inv_pole_pairs) * m->c_rpm_to_radps;
+        om_abs_max = 1.2f * om_mech_max;
+        if (!(om_abs_max > 0.0f)) {
+            om_abs_max = 500.0f;
+        }
+        m->c_om_abs_max = om_abs_max;
+    }
+
+    // ---------------- LESO z clamp cache ----------------
+    {
+        const float Imax = fabsf(m->m_conf->lo_current_max * m->m_conf->l_current_max_scale);
+        const float Te_max = Imax * fabsf(m->p_kT) * 1.2f + 0.5f;
+        m->c_z_abs_max = Te_max * m->c_b0; // = Te_max / J
+    }
 }

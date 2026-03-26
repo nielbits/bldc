@@ -405,6 +405,41 @@ typedef struct {
 	float param_value;
 
 
+	// ================= Cached constants / gains =================
+	float c_pole_pairs;
+	float c_inv_pole_pairs;
+
+	float c_radps_to_rpm;
+	float c_rpm_to_radps;
+	float c_mech_radps_to_erpm;
+	float c_erpm_to_mech_radps;
+
+	float c_area_s;              // p_k_area * p_height^2
+	float c_wheel_radius_inv;    // 1 / p_wheel_radius
+
+	float c_iq_norm_inv;         // 1 / (lo_current_max * l_current_max_scale)
+	float c_z_abs_max;           // cached LESO z clamp
+	float c_om_abs_max;          // cached omega plausibility clamp
+
+	// Speed scheduling cache
+	float c_erpm_act;
+	float c_erpm_sat;
+	float c_inv_erpm_sat;
+
+	float c_pos_dead;
+	float c_pos_floor;
+	float c_spd_floor;
+	float c_ref_pos;
+	float c_inv_ref_pos;
+
+	// LESO cache
+	float c_b0;
+	float c_b1;
+	float c_b2;
+	float c_b3;
+	float c_gz;
+	float c_fc_2pi;             // 2*pi*fc_TLPF
+
 } motor_all_state_t;
 
 
