@@ -5549,3 +5549,341 @@ void motor_update_cached_params(volatile motor_all_state_t *m) {
         m->c_z_abs_max = Te_max * m->c_b0; // = Te_max / J
     }
 }
+
+static void mcpwm_foc_update_bike_parameter_caches(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	if (!motor) {
+		return;
+	}
+
+	const mc_configuration *conf = motor->m_conf;
+	if (!conf) {
+		return;
+	}
+
+	const float pole_pairs = conf->si_motor_poles / 2.0f;
+
+	motor->c_pole_pairs = pole_pairs;
+	motor->c_inv_pole_pairs = (fabsf(pole_pairs) > 1e-9f) ? (1.0f / pole_pairs) : 0.0f;
+
+	motor->c_radps_to_rpm = 60.0f / (2.0f * (float)M_PI);
+	motor->c_rpm_to_radps = (2.0f * (float)M_PI) / 60.0f;
+	motor->c_mech_radps_to_erpm = pole_pairs * motor->c_radps_to_rpm;
+	motor->c_erpm_to_mech_radps = (fabsf(pole_pairs) > 1e-9f) ?
+			((2.0f * (float)M_PI) / (60.0f * pole_pairs)) : 0.0f;
+
+	motor->c_area_s = motor->p_k_area * motor->p_height * motor->p_height;
+	motor->c_wheel_radius_inv = (fabsf(motor->p_wheel_radius) > 1e-9f) ?
+			(1.0f / motor->p_wheel_radius) : 0.0f;
+
+	const float iq_max = conf->l_current_max * conf->l_current_max_scale;
+	motor->c_iq_norm_inv = (fabsf(iq_max) > 1e-9f) ? (1.0f / iq_max) : 0.0f;
+
+	motor->c_b0 = (motor->p_J > 1e-9f) ? (1.0f / motor->p_J) : 0.0f;
+
+	const float wo = 2.0f * (float)M_PI * motor->p_fo_hz;
+	motor->c_b1 = 3.0f * wo;
+	motor->c_b2 = 3.0f * wo * wo;
+	motor->c_b3 = wo * wo * wo;
+
+	motor->c_gz = 2.0f * (float)M_PI * motor->p_gz_hz;
+	motor->c_fc_2pi = 2.0f * (float)M_PI * motor->p_fc_TLPF;
+
+	motor->c_z_abs_max = 1e6f;
+	motor->c_om_abs_max = 1e6f;
+
+	if (motor->p_speed_limit_pos_control_activation > 1e-9f) {
+		motor->c_erpm_act = motor->p_speed_limit_pos_control_activation;
+		motor->c_erpm_sat = motor->p_speed_limit_pos_control_activation;
+		motor->c_inv_erpm_sat = 1.0f / motor->c_erpm_sat;
+	} else {
+		motor->c_erpm_act = 0.0f;
+		motor->c_erpm_sat = 0.0f;
+		motor->c_inv_erpm_sat = 0.0f;
+	}
+}
+
+void mcpwm_foc_set_bike_runtime(float gear_ratio_bike,
+								float incline_deg,
+								bool pumptrack_enabled,
+								bool freewheel_enabled,
+								float pumptrack_period_min) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	if (!motor) {
+		return;
+	}
+
+	if (!isfinite(gear_ratio_bike)) {
+		gear_ratio_bike = motor->gear_ratio_bike;
+	}
+	if (!isfinite(incline_deg)) {
+		incline_deg = motor->p_incline_deg;
+	}
+	if (!isfinite(pumptrack_period_min)) {
+		pumptrack_period_min = motor->pumptrack_period_min;
+	}
+
+	utils_truncate_number(&gear_ratio_bike, 0.01f, 100.0f);
+	utils_truncate_number(&incline_deg, -5.0f, 5.0f);
+	utils_truncate_number(&pumptrack_period_min, 0.01f, 60.0f);
+
+	motor->gear_ratio_bike = gear_ratio_bike;
+	motor->p_incline_deg = incline_deg;
+	motor->pumptrack_enabled = pumptrack_enabled;
+	motor->freewheel_enabled = freewheel_enabled;
+	motor->pumptrack_period_min = pumptrack_period_min;
+}
+
+void mcpwm_foc_set_bike_sim_params(float p_air_ro,
+								   float p_c_rr,
+								   float p_weight,
+								   float p_As,
+								   float p_c_air,
+								   float p_c_bw,
+								   float p_c_wl,
+								   float p_wheel_radius,
+								   float p_mech_gearing,
+								   float p_r_bearings,
+								   float p_k_v_bw,
+								   float p_J,
+								   float p_B,
+								   float p_k_area,
+								   float p_height,
+								   float p_speed_limit_pos_control_activation) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	if (!motor) {
+		return;
+	}
+
+	if (!isfinite(p_air_ro))  p_air_ro = motor->p_air_ro;
+	if (!isfinite(p_c_rr))    p_c_rr = motor->p_c_rr;
+	if (!isfinite(p_weight))  p_weight = motor->p_weight;
+	if (!isfinite(p_As))      p_As = motor->p_As;
+	if (!isfinite(p_c_air))   p_c_air = motor->p_c_air;
+	if (!isfinite(p_c_bw))    p_c_bw = motor->p_c_bw;
+	if (!isfinite(p_c_wl))    p_c_wl = motor->p_c_wl;
+	if (!isfinite(p_wheel_radius)) p_wheel_radius = motor->p_wheel_radius;
+	if (!isfinite(p_mech_gearing)) p_mech_gearing = motor->p_mech_gearing;
+	if (!isfinite(p_r_bearings))   p_r_bearings = motor->p_r_bearings;
+	if (!isfinite(p_k_v_bw))       p_k_v_bw = motor->p_k_v_bw;
+	if (!isfinite(p_J))            p_J = motor->p_J;
+	if (!isfinite(p_B))            p_B = motor->p_B;
+	if (!isfinite(p_k_area))       p_k_area = motor->p_k_area;
+	if (!isfinite(p_height))       p_height = motor->p_height;
+	if (!isfinite(p_speed_limit_pos_control_activation)) {
+		p_speed_limit_pos_control_activation = motor->p_speed_limit_pos_control_activation;
+	}
+
+	utils_truncate_number(&p_air_ro, 0.5f, 2.0f);
+	utils_truncate_number(&p_c_rr, 0.0f, 0.1f);
+	utils_truncate_number(&p_weight, 1.0f, 300.0f);
+	utils_truncate_number(&p_As, 0.0f, 5.0f);
+	utils_truncate_number(&p_c_air, 0.0f, 5.0f);
+	utils_truncate_number(&p_c_bw, 0.0f, 100.0f);
+	utils_truncate_number(&p_c_wl, 0.0f, 100.0f);
+	utils_truncate_number(&p_wheel_radius, 0.01f, 2.0f);
+	utils_truncate_number(&p_mech_gearing, 0.01f, 1000.0f);
+	utils_truncate_number(&p_r_bearings, 0.0f, 10.0f);
+	utils_truncate_number(&p_k_v_bw, 0.0f, 1000.0f);
+	utils_truncate_number(&p_J, 1e-8f, 100.0f);
+	utils_truncate_number(&p_B, 0.0f, 1000.0f);
+	utils_truncate_number(&p_k_area, 0.0f, 5.0f);
+	utils_truncate_number(&p_height, 0.0f, 5.0f);
+	utils_truncate_number(&p_speed_limit_pos_control_activation, 0.0f, 5000.0f);
+
+	motor->p_air_ro = p_air_ro;
+	motor->p_c_rr = p_c_rr;
+	motor->p_weight = p_weight;
+	motor->p_As = p_As;
+	motor->p_c_air = p_c_air;
+	motor->p_c_bw = p_c_bw;
+	motor->p_c_wl = p_c_wl;
+	motor->p_wheel_radius = p_wheel_radius;
+	motor->p_mech_gearing = p_mech_gearing;
+	motor->p_r_bearings = p_r_bearings;
+	motor->p_k_v_bw = p_k_v_bw;
+	motor->p_J = p_J;
+	motor->p_B = p_B;
+	motor->p_k_area = p_k_area;
+	motor->p_height = p_height;
+	motor->p_speed_limit_pos_control_activation = p_speed_limit_pos_control_activation;
+
+	mcpwm_foc_update_bike_parameter_caches();
+}
+
+void mcpwm_foc_set_control_params(float p_fo_hz,
+								  float p_gz_hz,
+								  float p_fc_TLPF,
+								  float p_adrc_scale) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	if (!motor) {
+		return;
+	}
+
+	if (!isfinite(p_fo_hz))      p_fo_hz = motor->p_fo_hz;
+	if (!isfinite(p_gz_hz))      p_gz_hz = motor->p_gz_hz;
+	if (!isfinite(p_fc_TLPF))    p_fc_TLPF = motor->p_fc_TLPF;
+	if (!isfinite(p_adrc_scale)) p_adrc_scale = motor->p_adrc_scale;
+
+	utils_truncate_number(&p_fo_hz, 0.0f, 50.0f);
+	utils_truncate_number(&p_gz_hz, 0.0f, 2.0f);
+	utils_truncate_number(&p_fc_TLPF, 0.0f, 5000.0f);
+	utils_truncate_number(&p_adrc_scale, 0.0f, 1.0f);
+
+	motor->p_fo_hz = p_fo_hz;
+	motor->p_gz_hz = p_gz_hz;
+	motor->p_fc_TLPF = p_fc_TLPF;
+	motor->p_adrc_scale = p_adrc_scale;
+
+	mcpwm_foc_update_bike_parameter_caches();
+}
+
+float mcpwm_foc_get_gear_ratio_bike(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->gear_ratio_bike : 0.0f;
+}
+
+float mcpwm_foc_get_p_incline_deg(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_incline_deg : 0.0f;
+}
+
+bool mcpwm_foc_get_pumptrack_enabled(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->pumptrack_enabled : false;
+}
+
+bool mcpwm_foc_get_freewheel_enabled(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->freewheel_enabled : false;
+}
+
+float mcpwm_foc_get_pumptrack_period_min(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->pumptrack_period_min : 0.0f;
+}
+
+float mcpwm_foc_get_p_air_ro(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_air_ro : 0.0f;
+}
+
+float mcpwm_foc_get_p_c_rr(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_c_rr : 0.0f;
+}
+
+float mcpwm_foc_get_p_weight(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_weight : 0.0f;
+}
+
+float mcpwm_foc_get_p_As(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_As : 0.0f;
+}
+
+float mcpwm_foc_get_p_c_air(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_c_air : 0.0f;
+}
+
+float mcpwm_foc_get_p_c_bw(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_c_bw : 0.0f;
+}
+
+float mcpwm_foc_get_p_c_wl(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_c_wl : 0.0f;
+}
+
+float mcpwm_foc_get_p_wheel_radius(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_wheel_radius : 0.0f;
+}
+
+float mcpwm_foc_get_p_mech_gearing(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_mech_gearing : 0.0f;
+}
+
+float mcpwm_foc_get_p_r_bearings(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_r_bearings : 0.0f;
+}
+
+float mcpwm_foc_get_p_k_v_bw(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_k_v_bw : 0.0f;
+}
+
+float mcpwm_foc_get_p_J(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_J : 0.0f;
+}
+
+float mcpwm_foc_get_p_B(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_B : 0.0f;
+}
+
+float mcpwm_foc_get_p_k_area(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_k_area : 0.0f;
+}
+
+float mcpwm_foc_get_p_height(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_height : 0.0f;
+}
+
+float mcpwm_foc_get_p_speed_limit_pos_control_activation(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_speed_limit_pos_control_activation : 0.0f;
+}
+
+float mcpwm_foc_get_p_fo_hz(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_fo_hz : 0.0f;
+}
+
+float mcpwm_foc_get_p_gz_hz(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_gz_hz : 0.0f;
+}
+
+float mcpwm_foc_get_p_fc_TLPF(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_fc_TLPF : 0.0f;
+}
+
+float mcpwm_foc_get_p_adrc_scale(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_adrc_scale : 0.0f;
+}
+
+float mcpwm_foc_get_p_Tc(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_Tc : 0.0f;
+}
+
+float mcpwm_foc_get_p_Tc_ws(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_Tc_ws : 0.0f;
+}
+
+float mcpwm_foc_get_p_kp_pos(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_kp_pos : 0.0f;
+}
+
+float mcpwm_foc_get_p_ki_pos(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_ki_pos : 0.0f;
+}
+
+float mcpwm_foc_get_p_kd_pos(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_kd_pos : 0.0f;
+}

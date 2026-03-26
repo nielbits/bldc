@@ -168,6 +168,69 @@ float mcpwm_foc_get_pos_term_speed(void);
 float mcpwm_foc_get_speed_error(void);
 uint32_t mcpwm_foc_get_status_bits(void);
 float mcpwm_foc_get_t_e(void);
+
+void mcpwm_foc_set_bike_runtime(float gear_ratio_bike,
+								float incline_deg,
+								bool pumptrack_enabled,
+								bool freewheel_enabled,
+								float pumptrack_period_min);
+
+
+void mcpwm_foc_set_bike_sim_params(float p_air_ro,
+								   float p_c_rr,
+								   float p_weight,
+								   float p_As,
+								   float p_c_air,
+								   float p_c_bw,
+								   float p_c_wl,
+								   float p_wheel_radius,
+								   float p_mech_gearing,
+								   float p_r_bearings,
+								   float p_k_v_bw,
+								   float p_J,
+								   float p_B,
+								   float p_k_area,
+								   float p_height,
+								   float p_speed_limit_pos_control_activation);
+
+void mcpwm_foc_set_control_params(float p_fo_hz,
+								  float p_gz_hz,
+								  float p_fc_TLPF,
+								  float p_adrc_scale);
+
+float mcpwm_foc_get_gear_ratio_bike(void);
+float mcpwm_foc_get_p_incline_deg(void);
+bool  mcpwm_foc_get_pumptrack_enabled(void);
+bool  mcpwm_foc_get_freewheel_enabled(void);
+float mcpwm_foc_get_pumptrack_period_min(void);
+
+float mcpwm_foc_get_p_air_ro(void);
+float mcpwm_foc_get_p_c_rr(void);
+float mcpwm_foc_get_p_weight(void);
+float mcpwm_foc_get_p_As(void);
+float mcpwm_foc_get_p_c_air(void);
+float mcpwm_foc_get_p_c_bw(void);
+float mcpwm_foc_get_p_c_wl(void);
+float mcpwm_foc_get_p_wheel_radius(void);
+float mcpwm_foc_get_p_mech_gearing(void);
+float mcpwm_foc_get_p_r_bearings(void);
+float mcpwm_foc_get_p_k_v_bw(void);
+float mcpwm_foc_get_p_kT(void);
+float mcpwm_foc_get_p_J(void);
+float mcpwm_foc_get_p_B(void);
+float mcpwm_foc_get_p_k_area(void);
+float mcpwm_foc_get_p_height(void);
+float mcpwm_foc_get_p_speed_limit_pos_control_activation(void);
+
+float mcpwm_foc_get_p_fo_hz(void);
+float mcpwm_foc_get_p_gz_hz(void);
+float mcpwm_foc_get_p_fc_TLPF(void);
+float mcpwm_foc_get_p_adrc_scale(void);
+float mcpwm_foc_get_p_Tc(void);
+float mcpwm_foc_get_p_Tc_ws(void);
+float mcpwm_foc_get_p_kp_pos(void);
+float mcpwm_foc_get_p_ki_pos(void);
+float mcpwm_foc_get_p_kd_pos(void);								  
 // Functions where the motor can be selected
 float mcpwm_foc_get_gear_ratio(void);
 float mcpwm_foc_get_tot_current_motor(bool is_second_motor);

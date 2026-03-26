@@ -578,6 +578,151 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		timeout_reset();
 	}break;
 
+	case COMM_SET_BIKE_RUNTIME: {
+		int32_t ind = 0;
+
+		float gear_ratio_bike      = buffer_get_float32(data, 1e6, &ind);
+		float incline_deg          = buffer_get_float32(data, 1e3, &ind);
+		bool pumptrack_enabled     = data[ind++];
+		bool freewheel_enabled     = data[ind++];
+		float pumptrack_period_min = buffer_get_float32(data, 1e3, &ind);
+
+		mcpwm_foc_set_bike_runtime(
+				gear_ratio_bike,
+				incline_deg,
+				pumptrack_enabled,
+				freewheel_enabled,
+				pumptrack_period_min);
+
+		timeout_reset();
+
+		ind = 0;
+		uint8_t send_buffer[16];
+		send_buffer[ind++] = COMM_SET_BIKE_RUNTIME;
+		reply_func(send_buffer, ind);
+	} break;
+
+	case COMM_GET_BIKE_RUNTIME: {
+		int32_t ind = 0;
+		uint8_t send_buffer[32];
+		send_buffer[ind++] = COMM_GET_BIKE_RUNTIME;
+
+		buffer_append_float32(send_buffer, mcpwm_foc_get_gear_ratio_bike(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_incline_deg(), 1e3, &ind);
+		send_buffer[ind++] = mcpwm_foc_get_pumptrack_enabled() ? 1 : 0;
+		send_buffer[ind++] = mcpwm_foc_get_freewheel_enabled() ? 1 : 0;
+		buffer_append_float32(send_buffer, mcpwm_foc_get_pumptrack_period_min(), 1e3, &ind);
+
+		reply_func(send_buffer, ind);
+	} break;
+
+	case COMM_SET_BIKE_SIM_PARAMS: {
+		int32_t ind = 0;
+
+		float p_air_ro   = buffer_get_float32(data, 1e6, &ind);
+		float p_c_rr     = buffer_get_float32(data, 1e6, &ind);
+		float p_weight   = buffer_get_float32(data, 1e3, &ind);
+		float p_As       = buffer_get_float32(data, 1e6, &ind);
+		float p_c_air    = buffer_get_float32(data, 1e6, &ind);
+		float p_c_bw     = buffer_get_float32(data, 1e6, &ind);
+		float p_c_wl     = buffer_get_float32(data, 1e6, &ind);
+		float p_wheel_radius = buffer_get_float32(data, 1e6, &ind);
+		float p_mech_gearing = buffer_get_float32(data, 1e6, &ind);
+		float p_r_bearings   = buffer_get_float32(data, 1e6, &ind);
+		float p_k_v_bw       = buffer_get_float32(data, 1e6, &ind);
+		float p_J            = buffer_get_float32(data, 1e6, &ind);
+		float p_B            = buffer_get_float32(data, 1e6, &ind);
+		float p_k_area       = buffer_get_float32(data, 1e6, &ind);
+		float p_height       = buffer_get_float32(data, 1e6, &ind);
+		float p_speed_limit_pos_control_activation = buffer_get_float32(data, 1e6, &ind);
+
+		mcpwm_foc_set_bike_sim_params(
+				p_air_ro,
+				p_c_rr,
+				p_weight,
+				p_As,
+				p_c_air,
+				p_c_bw,
+				p_c_wl,
+				p_wheel_radius,
+				p_mech_gearing,
+				p_r_bearings,
+				p_k_v_bw,
+				p_J,
+				p_B,
+				p_k_area,
+				p_height,
+				p_speed_limit_pos_control_activation);
+
+		timeout_reset();
+
+		ind = 0;
+		uint8_t send_buffer[16];
+		send_buffer[ind++] = COMM_SET_BIKE_SIM_PARAMS;
+		reply_func(send_buffer, ind);
+	} break;
+
+	case COMM_GET_BIKE_SIM_PARAMS: {
+		int32_t ind = 0;
+		uint8_t send_buffer[96];
+		send_buffer[ind++] = COMM_GET_BIKE_SIM_PARAMS;
+
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_air_ro(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_c_rr(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_weight(), 1e3, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_As(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_c_air(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_c_bw(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_c_wl(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_wheel_radius(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_mech_gearing(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_r_bearings(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_k_v_bw(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_J(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_B(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_k_area(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_height(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_speed_limit_pos_control_activation(), 1e6, &ind);
+
+		reply_func(send_buffer, ind);
+	} break;
+
+	case COMM_SET_CONTROL_PARAMS: {
+		int32_t ind = 0;
+
+		float p_fo_hz      = buffer_get_float32(data, 1e6, &ind);
+		float p_gz_hz      = buffer_get_float32(data, 1e6, &ind);
+		float p_fc_TLPF    = buffer_get_float32(data, 1e6, &ind);
+		float p_adrc_scale = buffer_get_float32(data, 1e6, &ind);
+
+
+		mcpwm_foc_set_control_params(
+				p_fo_hz,
+				p_gz_hz,
+				p_fc_TLPF,
+				p_adrc_scale);
+
+		timeout_reset();
+
+		ind = 0;
+		uint8_t send_buffer[16];
+		send_buffer[ind++] = COMM_SET_CONTROL_PARAMS;
+		reply_func(send_buffer, ind);
+	} break;
+
+	case COMM_GET_CONTROL_PARAMS: {
+		int32_t ind = 0;
+		uint8_t send_buffer[64];
+		send_buffer[ind++] = COMM_GET_CONTROL_PARAMS;
+
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_fo_hz(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_gz_hz(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_fc_TLPF(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_adrc_scale(), 1e6, &ind);
+
+		reply_func(send_buffer, ind);
+	} break;
+
 	case COMM_SET_DUTY: {
 		int32_t ind = 0;
 		mc_interface_set_duty((float)buffer_get_int32(data, &ind) / 100000.0);
