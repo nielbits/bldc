@@ -193,7 +193,17 @@ void mcpwm_foc_set_bike_sim_params(float p_air_ro,
 void mcpwm_foc_set_control_params(float p_fo_hz,
 								  float p_gz_hz,
 								  float p_fc_TLPF,
-								  float p_adrc_scale);
+								  float p_adrc_scale,
+								  float p_sched_spd_floor,
+								  float p_sched_pos_floor,
+								  float p_sched_pos_dead_erpm,
+								  float p_sched_spd_sat_erpm,
+								  float p_sched_pos_sat_erpm);
+float mcpwm_foc_get_p_sched_spd_floor(void);
+float mcpwm_foc_get_p_sched_pos_floor(void);
+float mcpwm_foc_get_p_sched_pos_dead_erpm(void);
+float mcpwm_foc_get_p_sched_spd_sat_erpm(void);
+float mcpwm_foc_get_p_sched_pos_sat_erpm(void);
 
 float mcpwm_foc_get_gear_ratio_bike(void);
 float mcpwm_foc_get_p_incline_deg(void);

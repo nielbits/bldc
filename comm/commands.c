@@ -690,17 +690,26 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 	case COMM_SET_CONTROL_PARAMS: {
 		int32_t ind = 0;
 
-		float p_fo_hz      = buffer_get_float32(data, 1e6, &ind);
-		float p_gz_hz      = buffer_get_float32(data, 1e6, &ind);
-		float p_fc_TLPF    = buffer_get_float32(data, 1e6, &ind);
-		float p_adrc_scale = buffer_get_float32(data, 1e6, &ind);
-
+		float p_fo_hz               = buffer_get_float32(data, 1e6, &ind);
+		float p_gz_hz               = buffer_get_float32(data, 1e6, &ind);
+		float p_fc_TLPF             = buffer_get_float32(data, 1e6, &ind);
+		float p_adrc_scale          = buffer_get_float32(data, 1e6, &ind);
+		float p_sched_spd_floor     = buffer_get_float32(data, 1e6, &ind);
+		float p_sched_pos_floor     = buffer_get_float32(data, 1e6, &ind);
+		float p_sched_pos_dead_erpm = buffer_get_float32(data, 1e6, &ind);
+		float p_sched_spd_sat_erpm  = buffer_get_float32(data, 1e6, &ind);
+		float p_sched_pos_sat_erpm  = buffer_get_float32(data, 1e6, &ind);
 
 		mcpwm_foc_set_control_params(
 				p_fo_hz,
 				p_gz_hz,
 				p_fc_TLPF,
-				p_adrc_scale);
+				p_adrc_scale,
+				p_sched_spd_floor,
+				p_sched_pos_floor,
+				p_sched_pos_dead_erpm,
+				p_sched_spd_sat_erpm,
+				p_sched_pos_sat_erpm);
 
 		timeout_reset();
 
@@ -708,11 +717,11 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		uint8_t send_buffer[16];
 		send_buffer[ind++] = COMM_SET_CONTROL_PARAMS;
 		reply_func(send_buffer, ind);
-	} break;
+		} break;
 
 	case COMM_GET_CONTROL_PARAMS: {
 		int32_t ind = 0;
-		uint8_t send_buffer[64];
+		uint8_t send_buffer[128];
 		send_buffer[ind++] = COMM_GET_CONTROL_PARAMS;
 
 		buffer_append_float32(send_buffer, mcpwm_foc_get_p_fo_hz(), 1e6, &ind);
@@ -720,14 +729,18 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		buffer_append_float32(send_buffer, mcpwm_foc_get_p_fc_TLPF(), 1e6, &ind);
 		buffer_append_float32(send_buffer, mcpwm_foc_get_p_adrc_scale(), 1e6, &ind);
 
-		reply_func(send_buffer, ind);
-	} break;
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_spd_floor(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_pos_floor(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_pos_dead_erpm(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_spd_sat_erpm(), 1e6, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_pos_sat_erpm(), 1e6, &ind);
 
-	case COMM_SET_DUTY: {
-		int32_t ind = 0;
-		mc_interface_set_duty((float)buffer_get_int32(data, &ind) / 100000.0);
-		timeout_reset();
-	} break;
+		reply_func(send_buffer, ind);
+		case COMM_SET_DUTY: {
+			int32_t ind = 0;
+			mc_interface_set_duty((float)buffer_get_int32(data, &ind) / 100000.0);
+			timeout_reset();
+		} break;
 
 	case COMM_SET_CURRENT: {
 		int32_t ind = 0;

@@ -393,6 +393,12 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_kd_pos =0.0f;
 	m_motor_1.p_incline_deg=0.0f;
 
+	m_motor_1.p_sched_spd_floor     = 0.30f;
+	m_motor_1.p_sched_pos_floor     = 0.30f;
+	m_motor_1.p_sched_pos_dead_erpm = 10.0f;
+	m_motor_1.p_sched_spd_sat_erpm  = 1000.0f;
+	m_motor_1.p_sched_pos_sat_erpm  = 1000.0f;
+
 
 	m_motor_1.pumptrack_enabled = false;
 	m_motor_1.pumptrack_time=0.0f;
@@ -5402,15 +5408,19 @@ void motor_update_cached_params(volatile motor_all_state_t *m) {
         m->c_iq_norm_inv = 0.0f;
     }
 
-    // ---------------- Speed scheduling cache ----------------
-    m->c_erpm_act   = m->p_speed_limit_pos_control_activation * 1.25f;
-    m->c_erpm_sat   = m->c_erpm_act * 2.0f;
-    m->c_inv_erpm_sat = (m->c_erpm_sat > 1e-9f) ? (1.0f / m->c_erpm_sat) : 0.0f;
+	// Gain scheduling cache
+	m->c_sched_spd_floor = m->p_sched_spd_floor;
+	m->c_sched_pos_floor = m->p_sched_pos_floor;
+	m->c_sched_pos_dead_erpm = m->p_sched_pos_dead_erpm;
+	m->c_sched_spd_sat_erpm = m->p_sched_spd_sat_erpm;
+	m->c_sched_pos_sat_erpm = m->p_sched_pos_sat_erpm;
 
-    m->c_pos_dead  = 15.0f;
-    m->c_pos_floor = 0.40f;
-    m->c_spd_floor = 0.30f;
-
+	// clamp cached values for safety
+	utils_truncate_number(&m->c_sched_spd_floor, 0.0f, 1.0f);
+	utils_truncate_number(&m->c_sched_pos_floor, 0.0f, 1.0f);
+	utils_truncate_number(&m->c_sched_pos_dead_erpm, 0.0f, 10000.0f);
+	utils_truncate_number(&m->c_sched_spd_sat_erpm, 1.0f, 10000.0f);
+	utils_truncate_number(&m->c_sched_pos_sat_erpm, 1.0f, 10000.0f);
     m->c_ref_pos = m->c_erpm_sat - m->c_pos_dead;
     if (m->c_ref_pos < 1e-6f) {
         m->c_ref_pos = 1.0f;
@@ -5616,28 +5626,81 @@ void mcpwm_foc_set_bike_sim_params(float p_air_ro,
 void mcpwm_foc_set_control_params(float p_fo_hz,
 								  float p_gz_hz,
 								  float p_fc_TLPF,
-								  float p_adrc_scale) {
+								  float p_adrc_scale,
+								  float p_sched_spd_floor,
+								  float p_sched_pos_floor,
+								  float p_sched_pos_dead_erpm,
+								  float p_sched_spd_sat_erpm,
+								  float p_sched_pos_sat_erpm) {
 	volatile motor_all_state_t *motor = get_motor_now();
 	if (!motor) {
 		return;
 	}
 
-	if (!isfinite(p_fo_hz))      p_fo_hz = motor->p_fo_hz;
-	if (!isfinite(p_gz_hz))      p_gz_hz = motor->p_gz_hz;
-	if (!isfinite(p_fc_TLPF))    p_fc_TLPF = motor->p_fc_TLPF;
-	if (!isfinite(p_adrc_scale)) p_adrc_scale = motor->p_adrc_scale;
+	if (!isfinite(p_fo_hz))               p_fo_hz = motor->p_fo_hz;
+	if (!isfinite(p_gz_hz))               p_gz_hz = motor->p_gz_hz;
+	if (!isfinite(p_fc_TLPF))             p_fc_TLPF = motor->p_fc_TLPF;
+	if (!isfinite(p_adrc_scale))          p_adrc_scale = motor->p_adrc_scale;
+
+	if (!isfinite(p_sched_spd_floor))     p_sched_spd_floor = motor->p_sched_spd_floor;
+	if (!isfinite(p_sched_pos_floor))     p_sched_pos_floor = motor->p_sched_pos_floor;
+	if (!isfinite(p_sched_pos_dead_erpm)) p_sched_pos_dead_erpm = motor->p_sched_pos_dead_erpm;
+	if (!isfinite(p_sched_spd_sat_erpm))  p_sched_spd_sat_erpm = motor->p_sched_spd_sat_erpm;
+	if (!isfinite(p_sched_pos_sat_erpm))  p_sched_pos_sat_erpm = motor->p_sched_pos_sat_erpm;
 
 	utils_truncate_number(&p_fo_hz, 0.0f, 50.0f);
 	utils_truncate_number(&p_gz_hz, 0.0f, 2.0f);
 	utils_truncate_number(&p_fc_TLPF, 0.0f, 5000.0f);
 	utils_truncate_number(&p_adrc_scale, 0.0f, 1.0f);
 
+	utils_truncate_number(&p_sched_spd_floor, 0.0f, 1.0f);
+	utils_truncate_number(&p_sched_pos_floor, 0.0f, 1.0f);
+	utils_truncate_number(&p_sched_pos_dead_erpm, 0.0f, 100000.0f);
+	utils_truncate_number(&p_sched_spd_sat_erpm, 1.0f, 100000.0f);
+	utils_truncate_number(&p_sched_pos_sat_erpm, 1.0f, 100000.0f);
+
+	// Keep position saturation above deadband in absolute semantics
+	if (p_sched_pos_sat_erpm <= p_sched_pos_dead_erpm) {
+		p_sched_pos_sat_erpm = p_sched_pos_dead_erpm + 1.0f;
+	}
+
 	motor->p_fo_hz = p_fo_hz;
 	motor->p_gz_hz = p_gz_hz;
 	motor->p_fc_TLPF = p_fc_TLPF;
 	motor->p_adrc_scale = p_adrc_scale;
 
+	motor->p_sched_spd_floor = p_sched_spd_floor;
+	motor->p_sched_pos_floor = p_sched_pos_floor;
+	motor->p_sched_pos_dead_erpm = p_sched_pos_dead_erpm;
+	motor->p_sched_spd_sat_erpm = p_sched_spd_sat_erpm;
+	motor->p_sched_pos_sat_erpm = p_sched_pos_sat_erpm;
+
 	mcpwm_foc_update_bike_parameter_caches();
+}
+
+float mcpwm_foc_get_p_sched_spd_floor(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_sched_spd_floor : 0.0f;
+}
+
+float mcpwm_foc_get_p_sched_pos_floor(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_sched_pos_floor : 0.0f;
+}
+
+float mcpwm_foc_get_p_sched_pos_dead_erpm(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_sched_pos_dead_erpm : 0.0f;
+}
+
+float mcpwm_foc_get_p_sched_spd_sat_erpm(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_sched_spd_sat_erpm : 0.0f;
+}
+
+float mcpwm_foc_get_p_sched_pos_sat_erpm(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->p_sched_pos_sat_erpm : 0.0f;
 }
 
 float mcpwm_foc_get_gear_ratio_bike(void) {
@@ -5782,12 +5845,12 @@ float mcpwm_foc_get_p_Tc_ws(void) {
 
 float mcpwm_foc_get_p_kp_pos(void) {
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor ? motor->p_kp_pos : 0.0f;
+	return motor ? motor->m_conf->p_pid_kp : 0.0f;
 }
 
 float mcpwm_foc_get_p_ki_pos(void) {
 	volatile motor_all_state_t *motor = get_motor_now();
-	return motor ? motor->p_ki_pos : 0.0f;
+	return motor ? motor->m_conf->p_pid_ki : 0.0f;
 }
 
 float mcpwm_foc_get_p_kd_pos(void) {

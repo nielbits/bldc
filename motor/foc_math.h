@@ -421,16 +421,19 @@ typedef struct {
 	float c_z_abs_max;           // cached LESO z clamp
 	float c_om_abs_max;          // cached omega plausibility clamp
 
-	// Speed scheduling cache
-	float c_erpm_act;
-	float c_erpm_sat;
-	float c_inv_erpm_sat;
+	// Gain scheduling parameters
+	float p_sched_spd_floor;      // minimum speed-loop gain multiplier [0..1]
+	float p_sched_pos_floor;      // minimum position-loop gain multiplier [0..1]
+	float p_sched_pos_dead_erpm;  // deadband before position scheduling starts [ERPM]
+	float p_sched_spd_sat_erpm;   // speed scheduling practical saturation point [ERPM]
+	float p_sched_pos_sat_erpm;   // position scheduling practical saturation point [ERPM]
 
-	float c_pos_dead;
-	float c_pos_floor;
-	float c_spd_floor;
-	float c_ref_pos;
-	float c_inv_ref_pos;
+	// Gain scheduling cache
+	float c_sched_spd_floor;
+	float c_sched_pos_floor;
+	float c_sched_pos_dead_erpm;
+	float c_sched_spd_sat_erpm;
+	float c_sched_pos_sat_erpm;
 
 	// LESO cache
 	float c_b0;
@@ -475,6 +478,8 @@ float slew_limit(float x, float x_prev, float rate, float dt);
 float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1);
 float map_floor(float m, float floor);
 float ramp_rational_x0(float x, float x0, float p);
+inline float map_floor_local(float m, float floor);
+inline float ramp_rational_x0_p2(float x, float x0);
 
 /*
 inline float falf(float e, float alpha, float delta);

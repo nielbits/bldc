@@ -620,22 +620,31 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         }
     }
 
-    // ================= Linear gain scheduling =================
+   // ================= Gain scheduling =================
     const float erpm_abs_meas = 0.5f * (fabsf(rpm) + fabsf(motor->d_erpm_soll));
 
-    float m_spd = erpm_abs_meas * motor->c_inv_erpm_sat;
-    if (m_spd > 1.0f) m_spd = 1.0f;
-    if (m_spd < 0.0f) m_spd = 0.0f;
-    const float g_spd = motor->c_spd_floor + (1.0f - motor->c_spd_floor) * m_spd;
+    // User parameters
+    const float spd_floor    = motor->p_sched_spd_floor;
+    const float pos_floor    = motor->p_sched_pos_floor;
+    const float pos_dead     = motor->p_sched_pos_dead_erpm;
+    const float spd_sat_erpm = motor->p_sched_spd_sat_erpm;
+    const float pos_sat_erpm = motor->p_sched_pos_sat_erpm;
 
-    float x_pos = erpm_abs_meas - motor->c_pos_dead;
-    if (x_pos < 0.0f) x_pos = 0.0f;
+    
+    // Speed schedule
+    const float m_spd = ramp_rational_p2(erpm_abs_meas, spd_sat_erpm);
+    const float g_spd = map_floor_local(m_spd, spd_floor);
 
-    float m_pos = x_pos * motor->c_inv_ref_pos;
-    if (m_pos > 1.0f) m_pos = 1.0f;
-    if (m_pos < 0.0f) m_pos = 0.0f;
-    const float g_pos = motor->c_pos_floor + (1.0f - motor->c_pos_floor) * m_pos;
+    // Position schedule
+    float x_pos = erpm_abs_meas - pos_dead;
+    if (x_pos < 0.0f) {
+        x_pos = 0.0f;
+    }
 
+    const float m_pos = ramp_rational_p2(x_pos, pos_sat_erpm);
+    const float g_pos = map_floor_local(m_pos, pos_floor);
+
+    // Effective gains
     const float pos_kp_eff = pos_kp * g_pos * 100.0f;
     const float pos_ki_eff = pos_ki * g_pos * 100.0f;
 
@@ -1590,3 +1599,30 @@ void nleso4_step_ext_torque(
     m->Text_ext_hat_f = aT * m->Text_ext_hat_f + (1.0f - aT) * Text_ext_hat;
 }
 
+inline float map_floor_local(float m, float floor) {
+    utils_truncate_number(&floor, 0.0f, 1.0f);
+
+    if (m < 0.0f) m = 0.0f;
+    if (m > 1.0f) m = 1.0f;
+
+    return floor + (1.0f - floor) * m;
+}
+
+inline float ramp_rational_p2(float x, float x_sat) {
+    if (x <= 0.0f) {
+        return 0.0f;
+    }
+
+    if (x_sat < 1e-6f) {
+        return 1.0f;
+    }
+
+    // Define x_sat as the point where m = 0.8
+    // For m = x^2 / (x^2 + x0^2), that gives x0 = 0.5 * x_sat
+    const float x0 = 0.5f * x_sat;
+
+    const float x2  = x * x;
+    const float x02 = x0 * x0;
+
+    return x2 / (x2 + x02);
+}
