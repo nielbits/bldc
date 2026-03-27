@@ -533,7 +533,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		buffer_append_float32(send_buffer, mcpwm_foc_get_i_res(), 1e6, &ind);       // 116, 117, 118, 119
 		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_angle_sp(), 1e4, &ind); // 120, 121, 122, 123
 		buffer_append_float32(send_buffer, 10.0f, 1e3, &ind);// 124, 125, 126, 127
-		buffer_append_float32(send_buffer, 10.0f, 1e3, &ind);              // 128, 129, 130, 131
+		buffer_append_float32(send_buffer, mcpwm_foc_get_pos_term_speed(), 1e3, &ind);              // 128, 129, 130, 131
 		buffer_append_float32(send_buffer, mcpwm_foc_get_speed_error(), 1e3, &ind);              // 132, 133, 134, 135
 		buffer_append_float32(send_buffer, mcpwm_foc_t_f_combine() , 1e3, &ind);              // 136, 137, 138, 139
 		buffer_append_float32(send_buffer, mcpwm_get_incline_deg_ist() , 1e3, &ind);              // 140, 141, 142, 143
