@@ -101,10 +101,7 @@ float mcpwm_foc_get_i_res(void);
 float mcpwm_foc_t_f_combine(void);
 
 //parameter change functions
-void mcpmw_set_param_index(int index);
-int  mcpwm_get_param_index(void);
-void mcpwm_set_param_from_index(float param);
-float mcpwm_get_param_from_index(void);
+
 float mcpwm_get_incline_deg_ist(void);
 
 
@@ -230,7 +227,8 @@ float mcpwm_foc_get_p_Tc(void);
 float mcpwm_foc_get_p_Tc_ws(void);
 float mcpwm_foc_get_p_kp_pos(void);
 float mcpwm_foc_get_p_ki_pos(void);
-float mcpwm_foc_get_p_kd_pos(void);								  
+float mcpwm_foc_get_p_kd_pos(void);			
+float mcpwm_foc_get_t_ff(void);
 // Functions where the motor can be selected
 float mcpwm_foc_get_gear_ratio(void);
 float mcpwm_foc_get_tot_current_motor(bool is_second_motor);

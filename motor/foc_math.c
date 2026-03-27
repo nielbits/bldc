@@ -660,8 +660,6 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     UTILS_LP_FAST(motor->p_gear_ratio_filtered, motor->gear_ratio_bike, 0.001f);
     float gear_ratio = motor->p_gear_ratio_filtered;
     float gearing = (float)(motor->p_mech_gearing / gear_ratio);
-
-    motor->p_incline_deg = conf_now->p_pid_kd_proc;
     UTILS_LP_FAST(motor->p_incline_filtered, motor->p_incline_deg, 0.01f);
 
     float incline_base_deg = motor->p_incline_filtered;

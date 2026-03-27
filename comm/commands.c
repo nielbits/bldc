@@ -529,16 +529,16 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_theta(), 1e4, &ind);    // 100, 101, 102, 103
 		buffer_append_float32(send_buffer, mcpwm_foc_get_leso_omega(), 1e4, &ind);// 104, 105, 106, 107
 		buffer_append_float32(send_buffer, mcpwm_foc_get_tp_observed(), 1e4, &ind); // 108, 109, 110, 111
-		buffer_append_int32(send_buffer, mcpwm_get_param_index(), &ind);            // 112, 113, 114, 115
+		buffer_append_int32(send_buffer, 10, &ind);            // 112, 113, 114, 115
 		buffer_append_float32(send_buffer, mcpwm_foc_get_i_res(), 1e6, &ind);       // 116, 117, 118, 119
 		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_angle_sp(), 1e4, &ind); // 120, 121, 122, 123
-		buffer_append_float32(send_buffer, mcpwm_get_param_from_index(), 1e3, &ind);// 124, 125, 126, 127
-		buffer_append_float32(send_buffer, mcpwm_foc_get_pos_term_speed(), 1e3, &ind);              // 128, 129, 130, 131
+		buffer_append_float32(send_buffer, 10.0f, 1e3, &ind);// 124, 125, 126, 127
+		buffer_append_float32(send_buffer, 10.0f, 1e3, &ind);              // 128, 129, 130, 131
 		buffer_append_float32(send_buffer, mcpwm_foc_get_speed_error(), 1e3, &ind);              // 132, 133, 134, 135
 		buffer_append_float32(send_buffer, mcpwm_foc_t_f_combine() , 1e3, &ind);              // 136, 137, 138, 139
 		buffer_append_float32(send_buffer, mcpwm_get_incline_deg_ist() , 1e3, &ind);              // 140, 141, 142, 143
 		buffer_append_float32(send_buffer, mcpwm_foc_get_t_e() , 1e3, &ind);              // 144, 145, 146, 147
-		buffer_append_float32(send_buffer, (float)(6.006) , 1e3, &ind);              // 148, 149, 150, 151
+		buffer_append_float32(send_buffer, mcpwm_foc_get_t_ff() , 1e3, &ind);              // 148, 149, 150, 151
 		buffer_append_float32(send_buffer, (float)(7.007) , 1e3, &ind);              // 152, 153, 154, 155
 		buffer_append_float32(send_buffer, (float)(8.008) , 1e3, &ind);              // 156, 157, 158, 159
 		buffer_append_float32(send_buffer, (float)(9.009) , 1e3, &ind);              // 160, 161, 162, 163
@@ -786,21 +786,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		timeout_reset();
 	} break;
 
-	case COMM_CHOOSE_PARAMETER: {
-		int32_t ind = 0;
-		int index=buffer_get_int32(data, &ind);
-		
-		mcpmw_set_param_index(index);
-
-		timeout_reset();
-	} break;
-
-	case COMM_SET_CHOSEN_PARAM: {
-		int32_t ind = 0;
-		float param=(float)buffer_get_int32(data, &ind) / 1000.0;
-		mcpwm_set_param_from_index(param);
-		timeout_reset();
-	} break;
+	
 
 	case COMM_SET_MCCONF: {
 #ifndef	HW_MCCONF_READ_ONLY

@@ -5364,104 +5364,6 @@ float mcpwm_get_incline_deg_ist(void) {
 	return get_motor_now()->incline_result;
 }
 
-// Read the field selected by param_index into motor->param_value.
-float mcpwm_get_param_from_index(void) {
-	volatile motor_all_state_t *m = (volatile motor_all_state_t*)get_motor_now();
-	int idx = m->param_index;
-	float v = 0.0f;
-
-	switch (idx) {
-	case 0:
-		// Do nothing, reserved.
-		v = 0.0f;
-		break;
-	case 1:  v = m->gear_ratio_bike; break;
-	case 2:  v = m->p_air_ro; break;
-	case 3:  v = m->p_c_rr; break;
-	case 4:  v = m->p_weight; break;
-	case 5:  v = m->p_As; break;
-	case 6:  v = m->p_c_air; break;
-	case 7:  v = m->p_c_bw; break;
-	case 8:  v = m->p_c_wl; break;
-	case 9:  v = m->p_wheel_radius; break;
-	case 10: v = m->p_r_bearings; break;
-	case 11: v = m->p_k_v_bw; break;
-	case 12: v = m->p_k_area; break;
-	case 13: v = m->p_height; break;
-	case 14: v = m->p_fo_hz; break;
-	case 15: v = m->p_gz_hz; break;
-	case 16: v = m->p_fc_TLPF; break;
-	case 17: v = m->p_adrc_scale; break;
-	case 18: v = m->p_kp_pos; break;
-	case 19: v = m->p_ki_pos; break;
-	case 20: v = m->p_kd_pos; break;
-	case 21: v = m->p_J; break;
-	case 22: v = m->p_incline_deg; break;
-	case 23: v = m->p_mech_gearing; break;
-	case 24: v = (float)m->pumptrack_enabled; break;
-	case 25: v = (float)m->freewheel_enabled; break;
-	case 26: break;
-	default:
-		// unknown index -> leave as 0.0
-		v = 500.0;
-		break;
-	}
-
-	return v;
-}
-	
-// Write motor->param_value into the field selected by motor->param_index.
-void mcpwm_set_param_from_index(float param) {
-	volatile motor_all_state_t *m = (volatile motor_all_state_t*)get_motor_now();
-	int idx = m->param_index;
-	m->param_value = param;
-	float v = m->param_value;
-
-	switch (idx) {
-	case 0:
-		// Do nothing, reserved.
-		break;
-	case 1:  m->gear_ratio_bike = v; break;
-	case 2:  m->p_air_ro = v; break;
-	case 3:  m->p_c_rr = v; break;
-	case 4:  m->p_weight = v; break;
-	case 5:  m->p_As = v; break;
-	case 6:  m->p_c_air = v; break;
-	case 7:  m->p_c_bw = v; break;
-	case 8:  m->p_c_wl = v; break;
-	case 9:  m->p_wheel_radius = v; break;
-	case 10: m->p_r_bearings = v; break;
-	case 11: m->p_k_v_bw = v; break;
-	case 12: m->p_k_area = v; break;
-	case 13: m->p_height = v; break;
-	case 14: m->p_fo_hz = v; break;
-	case 15: m->p_gz_hz = v; break;
-	case 16: m->p_fc_TLPF = v; break;
-	case 17: m->p_adrc_scale = v; break;
-	case 18: m->p_kp_pos = v; break;
-	case 19: m->p_ki_pos = v; break;
-	case 20: m->p_kd_pos = v; break;
-	case 21: m->p_J = v; break;
-	case 22: m->p_incline_deg  = v; break;
-	case 23: m->p_mech_gearing = v; break;
-	case 24:
-		if (v>=0.5f ){
-			m->pumptrack_enabled = true;
-		} else {
-			m->pumptrack_enabled = false;
-		} break;
-	case 25:
-		if (v>=0.5f ){
-			m->freewheel_enabled = true;
-		} else {
-			m->freewheel_enabled = false;
-		} break;
-	case 26: break;
-	default:
-		// unknown index -> do nothing
-		break;
-	}
-}
 
 void motor_update_cached_params(volatile motor_all_state_t *m) {
     if (!m || !m->m_conf) {
@@ -5623,9 +5525,9 @@ void mcpwm_foc_set_bike_runtime(float gear_ratio_bike,
 		pumptrack_period_min = motor->pumptrack_period_min;
 	}
 
-	utils_truncate_number(&gear_ratio_bike, 0.01f, 100.0f);
-	utils_truncate_number(&incline_deg, -5.0f, 5.0f);
-	utils_truncate_number(&pumptrack_period_min, 0.01f, 60.0f);
+	utils_truncate_number(&gear_ratio_bike, 0.75f, 4.4f);
+	utils_truncate_number(&incline_deg, -10.0f, 10.0f);
+	utils_truncate_number(&pumptrack_period_min, 0.1f, 60.0f);
 
 	motor->gear_ratio_bike = gear_ratio_bike;
 	motor->p_incline_deg = incline_deg;
@@ -5861,6 +5763,11 @@ float mcpwm_foc_get_p_fc_TLPF(void) {
 float mcpwm_foc_get_p_adrc_scale(void) {
 	volatile motor_all_state_t *motor = get_motor_now();
 	return motor ? motor->p_adrc_scale : 0.0f;
+}
+
+float mcpwm_foc_get_t_ff(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? motor->Te_set : 0.0f;
 }
 
 float mcpwm_foc_get_p_Tc(void) {
