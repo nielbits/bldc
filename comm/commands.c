@@ -734,13 +734,15 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_pos_dead_erpm(), 1e6, &ind);
 		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_spd_sat_erpm(), 1e6, &ind);
 		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_pos_sat_erpm(), 1e6, &ind);
-
+	
 		reply_func(send_buffer, ind);
+	} break;
+
 		case COMM_SET_DUTY: {
 			int32_t ind = 0;
 			mc_interface_set_duty((float)buffer_get_int32(data, &ind) / 100000.0);
 			timeout_reset();
-		} break;
+	} break;
 
 	case COMM_SET_CURRENT: {
 		int32_t ind = 0;

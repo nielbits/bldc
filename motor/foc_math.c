@@ -630,7 +630,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     const float spd_sat_erpm = motor->p_sched_spd_sat_erpm;
     const float pos_sat_erpm = motor->p_sched_pos_sat_erpm;
 
-    
+
     // Speed schedule
     const float m_spd = ramp_rational_p2(erpm_abs_meas, spd_sat_erpm);
     const float g_spd = map_floor_local(m_spd, spd_floor);
@@ -1201,8 +1201,23 @@ inline void leso3_step(
 
     // Torque-based z bound
     const float z_abs_max = m->c_z_abs_max;
-    if (z1 >  z_abs_max) z1 =  z_abs_max;
-    if (z1 < -z_abs_max) z1 = -z_abs_max;
+    if (z1 >  z_abs_max){
+            z1 =  z_abs_max;
+        //    if (z1 > 4.0f* z_abs_max){
+        //        m->ctrl_sm_state = CTRL_SM_START; 
+        //    }
+           // If the torque estimate gets too positive, we likely have a problem. Restart the controller to be safe.
+    } 
+
+
+    if (z1 < -z_abs_max)
+    { 
+        z1 = -z_abs_max;
+       // if (z1 < -4.0f*z_abs_max){
+       //         m->ctrl_sm_state = CTRL_SM_START; 
+       //     }
+           // If the torque estimate gets too negative, we likely have a problem. Restart the controller to be safe.
+    }
 
     // --- omega plausibility clamp + slew on LESO omega state ---
     {
@@ -1599,7 +1614,7 @@ void nleso4_step_ext_torque(
     m->Text_ext_hat_f = aT * m->Text_ext_hat_f + (1.0f - aT) * Text_ext_hat;
 }
 
-inline float map_floor_local(float m, float floor) {
+float map_floor_local(float m, float floor) {
     utils_truncate_number(&floor, 0.0f, 1.0f);
 
     if (m < 0.0f) m = 0.0f;
@@ -1608,7 +1623,7 @@ inline float map_floor_local(float m, float floor) {
     return floor + (1.0f - floor) * m;
 }
 
-inline float ramp_rational_p2(float x, float x_sat) {
+float ramp_rational_p2(float x, float x_sat) {
     if (x <= 0.0f) {
         return 0.0f;
     }

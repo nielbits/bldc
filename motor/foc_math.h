@@ -435,6 +435,7 @@ typedef struct {
 	float c_sched_spd_sat_erpm;
 	float c_sched_pos_sat_erpm;
 
+	float c_sched_shape_p;   // optional
 	// LESO cache
 	float c_b0;
 	float c_b1;
@@ -478,9 +479,9 @@ float slew_limit(float x, float x_prev, float rate, float dt);
 float rate_from_abs_omega(float om_abs, float w1,float rate0, float rate1);
 float map_floor(float m, float floor);
 float ramp_rational_x0(float x, float x0, float p);
-inline float map_floor_local(float m, float floor);
-inline float ramp_rational_x0_p2(float x, float x0);
-
+float map_floor_local(float m, float floor);
+float ramp_rational_x0_p2(float x, float x0);
+float ramp_rational_p2(float x, float x_sat);
 /*
 inline float falf(float e, float alpha, float delta);
 inline float ramp_rational_ref(float x, float x_ref, float p);

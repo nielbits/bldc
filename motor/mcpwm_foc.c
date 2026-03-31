@@ -5409,23 +5409,27 @@ void motor_update_cached_params(volatile motor_all_state_t *m) {
     }
 
 	// Gain scheduling cache
-	m->c_sched_spd_floor = m->p_sched_spd_floor;
-	m->c_sched_pos_floor = m->p_sched_pos_floor;
-	m->c_sched_pos_dead_erpm = m->p_sched_pos_dead_erpm;
-	m->c_sched_spd_sat_erpm = m->p_sched_spd_sat_erpm;
-	m->c_sched_pos_sat_erpm = m->p_sched_pos_sat_erpm;
+	float spd_floor = m->p_sched_spd_floor;
+	float pos_floor = m->p_sched_pos_floor;
+	float pos_dead_erpm = m->p_sched_pos_dead_erpm;
+	float spd_sat_erpm = m->p_sched_spd_sat_erpm;
+	float pos_sat_erpm = m->p_sched_pos_sat_erpm;
 
-	// clamp cached values for safety
-	utils_truncate_number(&m->c_sched_spd_floor, 0.0f, 1.0f);
-	utils_truncate_number(&m->c_sched_pos_floor, 0.0f, 1.0f);
-	utils_truncate_number(&m->c_sched_pos_dead_erpm, 0.0f, 10000.0f);
-	utils_truncate_number(&m->c_sched_spd_sat_erpm, 1.0f, 10000.0f);
-	utils_truncate_number(&m->c_sched_pos_sat_erpm, 1.0f, 10000.0f);
-    m->c_ref_pos = m->c_erpm_sat - m->c_pos_dead;
-    if (m->c_ref_pos < 1e-6f) {
-        m->c_ref_pos = 1.0f;
-    }
-    m->c_inv_ref_pos = 1.0f / m->c_ref_pos;
+	utils_truncate_number(&spd_floor, 0.0f, 1.0f);
+	utils_truncate_number(&pos_floor, 0.0f, 1.0f);
+	utils_truncate_number(&pos_dead_erpm, 0.0f, 100000.0f);
+	utils_truncate_number(&spd_sat_erpm, 1.0f, 100000.0f);
+	utils_truncate_number(&pos_sat_erpm, 1.0f, 100000.0f);
+
+	if (pos_sat_erpm <= pos_dead_erpm) {
+		pos_sat_erpm = pos_dead_erpm + 1.0f;
+	}
+
+	m->c_sched_spd_floor = spd_floor;
+	m->c_sched_pos_floor = pos_floor;
+	m->c_sched_pos_dead_erpm = pos_dead_erpm;
+	m->c_sched_spd_sat_erpm = spd_sat_erpm;
+	m->c_sched_pos_sat_erpm = pos_sat_erpm;
 
     // ---------------- LESO cache ----------------
     float J = m->p_J;
@@ -5501,18 +5505,31 @@ static void mcpwm_foc_update_bike_parameter_caches(void) {
 	motor->c_gz = 2.0f * (float)M_PI * motor->p_gz_hz;
 	motor->c_fc_2pi = 2.0f * (float)M_PI * motor->p_fc_TLPF;
 
-	motor->c_z_abs_max = 1e6f;
+	motor->c_z_abs_max = 80.0f/ motor->p_J; // Te_max / J, with Te_max = 80 Nm chosen by trial and error to avoid windup in most cases
 	motor->c_om_abs_max = 1e6f;
 
-	if (motor->p_speed_limit_pos_control_activation > 1e-9f) {
-		motor->c_erpm_act = motor->p_speed_limit_pos_control_activation;
-		motor->c_erpm_sat = motor->p_speed_limit_pos_control_activation;
-		motor->c_inv_erpm_sat = 1.0f / motor->c_erpm_sat;
-	} else {
-		motor->c_erpm_act = 0.0f;
-		motor->c_erpm_sat = 0.0f;
-		motor->c_inv_erpm_sat = 0.0f;
+	// Gain scheduling cache
+	float spd_floor = motor->p_sched_spd_floor;
+	float pos_floor = motor->p_sched_pos_floor;
+	float pos_dead_erpm = motor->p_sched_pos_dead_erpm;
+	float spd_sat_erpm = motor->p_sched_spd_sat_erpm;
+	float pos_sat_erpm = motor->p_sched_pos_sat_erpm;
+
+	utils_truncate_number(&spd_floor, 0.0f, 1.0f);
+	utils_truncate_number(&pos_floor, 0.0f, 1.0f);
+	utils_truncate_number(&pos_dead_erpm, 0.0f, 100000.0f);
+	utils_truncate_number(&spd_sat_erpm, 1.0f, 100000.0f);
+	utils_truncate_number(&pos_sat_erpm, 1.0f, 100000.0f);
+
+	if (pos_sat_erpm <= pos_dead_erpm) {
+		pos_sat_erpm = pos_dead_erpm + 1.0f;
 	}
+
+	motor->c_sched_spd_floor = spd_floor;
+	motor->c_sched_pos_floor = pos_floor;
+	motor->c_sched_pos_dead_erpm = pos_dead_erpm;
+	motor->c_sched_spd_sat_erpm = spd_sat_erpm;
+	motor->c_sched_pos_sat_erpm = pos_sat_erpm;
 }
 
 void mcpwm_foc_set_bike_runtime(float gear_ratio_bike,
