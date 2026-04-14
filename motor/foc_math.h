@@ -302,7 +302,7 @@ typedef struct {
 	float pumptrack_time;
 	float pumptrack_period_min;
 
-	int ctrl_sm_still_cycles;
+	uint32_t ctrl_sm_still_cycles;
 	int ctrl_sm_state;
 
 	bool forced_freewheel;
