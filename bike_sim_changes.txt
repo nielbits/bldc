@@ -1,0 +1,1856 @@
+]633;E;echo "===== GIT STATUS =====";ae4b5b32-2fd3-46b8-ac9a-501e259d8a84]633;C===== GIT STATUS =====
+ M comm/commands.c
+ M datatypes.h
+ M motor/foc_math.c
+ M motor/foc_math.h
+ M motor/mcpwm_foc.c
+ M motor/mcpwm_foc.h
+?? bike_sim_changes.txt
+
+===== CHANGED FILES =====
+comm/commands.c
+datatypes.h
+motor/foc_math.c
+motor/foc_math.h
+motor/mcpwm_foc.c
+motor/mcpwm_foc.h
+
+===== DIFF =====
+diff --git a/comm/commands.c b/comm/commands.c
+index e69a93a3..42466a2b 100644
+--- a/comm/commands.c
++++ b/comm/commands.c
+@@ -888,0 +889,122 @@ void commands_process_packet(unsigned char *data, unsigned int len,
++	case COMM_GET_VALUES_EXP: {
++		int32_t ind = 0;
++		uint8_t *send_buffer = mempools_get_packet_buffer();
++		send_buffer[ind++] = COMM_GET_VALUES_EXP;
++
++		// Base telemetry
++		buffer_append_float16(send_buffer, mc_interface_temp_fet_filtered(), 1e1, &ind);
++		buffer_append_float16(send_buffer, mc_interface_temp_motor_filtered(), 1e1, &ind);
++		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_motor_current(), 1e2, &ind);
++		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_input_current(), 1e2, &ind);
++		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_id(), 1e2, &ind);
++		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_iq(), 1e2, &ind);
++		buffer_append_float16(send_buffer, mc_interface_get_duty_cycle_now(), 1e3, &ind);
++		buffer_append_float32(send_buffer, mc_interface_get_rpm(), 1e0, &ind);
++		buffer_append_float16(send_buffer, mc_interface_get_input_voltage_filtered(), 1e1, &ind);
++		buffer_append_float32(send_buffer, mc_interface_get_amp_hours(false), 1e4, &ind);
++		buffer_append_float32(send_buffer, mc_interface_get_amp_hours_charged(false), 1e4, &ind);
++		buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
++		buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
++		buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);
++		buffer_append_int32(send_buffer, mc_interface_get_tachometer_abs_value(false), &ind);
++		send_buffer[ind++] = mc_interface_get_fault();
++		buffer_append_float32(send_buffer, mc_interface_get_pid_pos_now(), 1e6, &ind);
++
++		uint8_t current_controller_id = app_get_configuration()->controller_id;
++	#ifdef HW_HAS_DUAL_MOTORS
++		if (mc_interface_get_motor_thread() == 2) {
++			current_controller_id = utils_second_motor_id();
++		}
++	#endif
++		send_buffer[ind++] = current_controller_id;
++
++	#ifdef HW_HAS_DUAL_MOTORS
++		if (mc_interface_get_motor_thread() == 2) {
++			buffer_append_float16(send_buffer, NTC_TEMP_MOS1_M2(), 1e1, &ind);
++			buffer_append_float16(send_buffer, NTC_TEMP_MOS2_M2(), 1e1, &ind);
++			buffer_append_float16(send_buffer, NTC_TEMP_MOS3_M2(), 1e1, &ind);
++		} else
++	#endif
++		{
++			buffer_append_float16(send_buffer, NTC_TEMP_MOS1(), 1e1, &ind);
++			buffer_append_float16(send_buffer, NTC_TEMP_MOS2(), 1e1, &ind);
++			buffer_append_float16(send_buffer, NTC_TEMP_MOS3(), 1e1, &ind);
++		}
++
++		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vd(), 1e3, &ind);
++		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vq(), 1e3, &ind);
++
++		uint8_t status = 0;
++		status |= timeout_has_timeout();
++		status |= timeout_kill_sw_active() << 1;
++		send_buffer[ind++] = status;
++
++		// Custom bike-sim telemetry
++		buffer_append_float16(send_buffer, mcpwm_foc_get_erpm_soll(), 1e0, &ind);
++		buffer_append_float16(send_buffer, mcpwm_foc_get_tf(), 1e4, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_gear_ratio(), 1e2, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_id(), 1e2, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_iq(), 1e2, &ind);
++		buffer_append_float16(send_buffer, mcpwm_foc_get_model_speed(), 1e2, &ind);
++		buffer_append_float16(send_buffer, mcpwm_foc_get_f_combine(), 1e1, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_iq_set(), 1e4, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_theta(), 1e4, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_leso_omega(), 1e4, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_tp_observed(), 1e4, &ind);
++		buffer_append_int32(send_buffer, 99, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_i_res(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_angle_sp(), 1e4, &ind);
++		buffer_append_float32(send_buffer, 99.9f, 1e3, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_pos_term_speed(), 1e3, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_speed_error(), 1e3, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_t_f_combine(), 1e3, &ind);
++		buffer_append_float32(send_buffer, mcpwm_get_incline_deg_ist(), 1e3, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_t_e(), 1e3, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_t_ff(), 1e3, &ind);
++		buffer_append_float32(send_buffer, 7.007f, 1e3, &ind);
++		buffer_append_float32(send_buffer, 8.008f, 1e3, &ind);
++		buffer_append_float32(send_buffer, 9.009f, 1e3, &ind);
++		buffer_append_uint32(send_buffer, mcpwm_foc_get_status_bits(), &ind);
++
++		reply_func(send_buffer, ind);
++		mempools_free_packet_buffer(send_buffer);
++		timeout_reset();
++	} break;
++
++	case COMM_SET_BIKE_RUNTIME: {
++		int32_t ind = 0;
++
++		float gear_ratio_bike      = buffer_get_float32(data, 1e6, &ind);
++		float incline_deg          = buffer_get_float32(data, 1e3, &ind);
++		bool pumptrack_enabled     = data[ind++];
++		bool freewheel_enabled     = data[ind++];
++		float pumptrack_period_min = buffer_get_float32(data, 1e3, &ind);
++
++		mcpwm_foc_set_bike_runtime(
++				gear_ratio_bike,
++				incline_deg,
++				pumptrack_enabled,
++				freewheel_enabled,
++				pumptrack_period_min);
++
++		timeout_reset();
++
++		ind = 0;
++		uint8_t send_buffer[8];
++		send_buffer[ind++] = COMM_SET_BIKE_RUNTIME;
++		reply_func(send_buffer, ind);
++	} break;
++
++	case COMM_GET_BIKE_RUNTIME: {
++		int32_t ind = 0;
++		uint8_t send_buffer[32];
++		send_buffer[ind++] = COMM_GET_BIKE_RUNTIME;
++
++		buffer_append_float32(send_buffer, mcpwm_foc_get_gear_ratio_bike(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_incline_deg(), 1e3, &ind);
++		send_buffer[ind++] = mcpwm_foc_get_pumptrack_enabled() ? 1 : 0;
++		send_buffer[ind++] = mcpwm_foc_get_freewheel_enabled() ? 1 : 0;
++		buffer_append_float32(send_buffer, mcpwm_foc_get_pumptrack_period_min(), 1e3, &ind);
++
++		reply_func(send_buffer, ind);
++	} break;
+@@ -889,0 +1012,120 @@ void commands_process_packet(unsigned char *data, unsigned int len,
++	case COMM_SET_BIKE_SIM_PARAMS: {
++		int32_t ind = 0;
++
++		float p_air_ro   = buffer_get_float32(data, 1e6, &ind);
++		float p_c_rr     = buffer_get_float32(data, 1e6, &ind);
++		float p_weight   = buffer_get_float32(data, 1e3, &ind);
++		float p_As       = buffer_get_float32(data, 1e6, &ind);
++		float p_c_air    = buffer_get_float32(data, 1e6, &ind);
++		float p_c_bw     = buffer_get_float32(data, 1e6, &ind);
++		float p_c_wl     = buffer_get_float32(data, 1e6, &ind);
++		float p_wheel_radius = buffer_get_float32(data, 1e6, &ind);
++		float p_mech_gearing = buffer_get_float32(data, 1e6, &ind);
++		float p_r_bearings   = buffer_get_float32(data, 1e6, &ind);
++		float p_k_v_bw       = buffer_get_float32(data, 1e6, &ind);
++		float p_J            = buffer_get_float32(data, 1e6, &ind);
++		float p_B            = buffer_get_float32(data, 1e6, &ind);
++		float p_k_area       = buffer_get_float32(data, 1e6, &ind);
++		float p_height       = buffer_get_float32(data, 1e6, &ind);
++		float p_speed_limit_pos_control_activation = buffer_get_float32(data, 1e6, &ind);
++
++		mcpwm_foc_set_bike_sim_params(
++				p_air_ro,
++				p_c_rr,
++				p_weight,
++				p_As,
++				p_c_air,
++				p_c_bw,
++				p_c_wl,
++				p_wheel_radius,
++				p_mech_gearing,
++				p_r_bearings,
++				p_k_v_bw,
++				p_J,
++				p_B,
++				p_k_area,
++				p_height,
++				p_speed_limit_pos_control_activation);
++
++		timeout_reset();
++
++		ind = 0;
++		uint8_t send_buffer[8];
++		send_buffer[ind++] = COMM_SET_BIKE_SIM_PARAMS;
++		reply_func(send_buffer, ind);
++	} break;
++
++	case COMM_GET_BIKE_SIM_PARAMS: {
++		int32_t ind = 0;
++		uint8_t send_buffer[96];
++		send_buffer[ind++] = COMM_GET_BIKE_SIM_PARAMS;
++
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_air_ro(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_c_rr(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_weight(), 1e3, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_As(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_c_air(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_c_bw(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_c_wl(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_wheel_radius(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_mech_gearing(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_r_bearings(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_k_v_bw(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_J(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_B(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_k_area(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_height(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_speed_limit_pos_control_activation(), 1e6, &ind);
++
++		reply_func(send_buffer, ind);
++	} break;
++
++	case COMM_SET_CONTROL_PARAMS: {
++		int32_t ind = 0;
++
++		float p_fo_hz               = buffer_get_float32(data, 1e6, &ind);
++		float p_gz_hz               = buffer_get_float32(data, 1e6, &ind);
++		float p_fc_TLPF             = buffer_get_float32(data, 1e6, &ind);
++		float p_adrc_scale          = buffer_get_float32(data, 1e6, &ind);
++		float p_sched_spd_floor     = buffer_get_float32(data, 1e6, &ind);
++		float p_sched_pos_floor     = buffer_get_float32(data, 1e6, &ind);
++		float p_sched_pos_dead_erpm = buffer_get_float32(data, 1e6, &ind);
++		float p_sched_spd_sat_erpm  = buffer_get_float32(data, 1e6, &ind);
++		float p_sched_pos_sat_erpm  = buffer_get_float32(data, 1e6, &ind);
++
++		mcpwm_foc_set_control_params(
++				p_fo_hz,
++				p_gz_hz,
++				p_fc_TLPF,
++				p_adrc_scale,
++				p_sched_spd_floor,
++				p_sched_pos_floor,
++				p_sched_pos_dead_erpm,
++				p_sched_spd_sat_erpm,
++				p_sched_pos_sat_erpm);
++
++		timeout_reset();
++
++		ind = 0;
++		uint8_t send_buffer[8];
++		send_buffer[ind++] = COMM_SET_CONTROL_PARAMS;
++		reply_func(send_buffer, ind);
++	} break;
++
++	case COMM_GET_CONTROL_PARAMS: {
++		int32_t ind = 0;
++		uint8_t send_buffer[64];
++		send_buffer[ind++] = COMM_GET_CONTROL_PARAMS;
++
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_fo_hz(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_gz_hz(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_fc_TLPF(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_adrc_scale(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_spd_floor(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_pos_floor(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_pos_dead_erpm(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_spd_sat_erpm(), 1e6, &ind);
++		buffer_append_float32(send_buffer, mcpwm_foc_get_p_sched_pos_sat_erpm(), 1e6, &ind);
++
++		reply_func(send_buffer, ind);
++	} break;
+diff --git a/datatypes.h b/datatypes.h
+index d122e88f..85391ee6 100644
+--- a/datatypes.h
++++ b/datatypes.h
+@@ -188 +188,2 @@ typedef enum {
+-	CONTROL_MODE_NONE
++	CONTROL_MODE_NONE,
++	CONTROL_MODE_BIKE_SIMULATION,
+@@ -1126,2 +1127,2 @@ typedef enum {
+-	COMM_SHUTDOWN							= 156,
+-	
++	COMM_SHUTDOWN                          = 156,
++
+@@ -1132,0 +1134,11 @@ typedef enum {
++
++	COMM_SET_BIKE_SIM_PARAMS               = 160,
++	COMM_GET_BIKE_SIM_PARAMS               = 161,
++	COMM_SET_CONTROL_PARAMS                = 162,
++	COMM_GET_CONTROL_PARAMS                = 163,
++	COMM_GET_VALUES_EXP                    = 164,
++
++	COMM_SET_BIKE_RUNTIME                  = 165,
++	COMM_GET_BIKE_RUNTIME                  = 166,
++	
++
+diff --git a/motor/foc_math.c b/motor/foc_math.c
+index 39301f71..a1e8b993 100644
+--- a/motor/foc_math.c
++++ b/motor/foc_math.c
+@@ -571,0 +572,394 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
++void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t *motor) {
++    mc_configuration *conf_now = motor->m_conf;
++    float p_term;
++    float d_term;
++    float p_term_pos;
++    float pos_error;
++
++    index_found = encoder_index_found();
++
++    float pos_kp = conf_now->p_pid_kp;
++    float pos_ki = conf_now->p_pid_ki;
++
++    bool ctrl_enabled = false;
++
++    if (motor->m_control_mode != CONTROL_MODE_BIKE_SIMULATION) {
++        motor->m_speed_i_term = 0.0f;
++        motor->m_speed_prev_error = 0.0f;
++        motor->m_speed_d_filter = 0.0f;
++        motor->model_pos_prev_error = 0.0f;
++        motor->model_pos_d_filter = 0.0f;
++        motor->model_pos_i_term = 0.0f;
++        motor->Text_ext_hat_f = 0.0f;
++        motor->ctrl_sm_state = CTRL_SM_START;
++        motor->status_bits |= false << STATUS_BIT_SPEED_CONTROL_ACTIVE;
++        motor->status_bits |= (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
++        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_START) << STATUS_BIT_CTRL_SM_START;
++        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_INDEX_FOUND) << STATUS_BIT_CTRL_SM_INDEX_FOUND;
++        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_ENABLE) << STATUS_BIT_CTRL_SM_ENABLE;
++        return;
++    }
++
++    const float radps_to_rpm       = motor->c_radps_to_rpm;
++    const float mech_radps_to_erpm = motor->c_mech_radps_to_erpm;
++    const float erpm_to_mech_radps = motor->c_erpm_to_mech_radps;
++    const float inv_pole_pairs     = motor->c_inv_pole_pairs;
++
++    float rpm = 0.0f;
++    float t_rpm = 0.0f;
++
++    const float clamp = 30000.0f;
++
++    switch (conf_now->s_pid_speed_source) {
++    case S_PID_SPEED_SRC_PLL:
++        t_rpm = motor->m_pll_speed * radps_to_rpm;
++        break;
++    case S_PID_SPEED_SRC_FAST:
++        t_rpm = motor->m_speed_est_fast * radps_to_rpm;
++        break;
++    case S_PID_SPEED_SRC_FASTER:
++        t_rpm = motor->m_speed_est_faster * radps_to_rpm;
++        break;
++    }
++
++    if (fabsf(t_rpm) > clamp) {
++        rpm = motor->last_rpm;
++    } else {
++        rpm = t_rpm;
++    }
++
++    motor->last_rpm = rpm;
++    ctrl_sm_state_t prev = motor->ctrl_sm_state;
++
++    {
++        const float rpm_deadband = 5.0f;
++        const uint32_t still_req_cycles = 5000;
++        const float abs_rpm = fabsf(motor->m_pll_speed * radps_to_rpm);
++
++        switch (motor->ctrl_sm_state) {
++        default:
++        case CTRL_SM_START:
++            motor->ctrl_sm_still_cycles = 0;
++            if (index_found) {
++                motor->ctrl_sm_state = CTRL_SM_INDEX_FOUND;
++                motor->unwrapped_theta = 0.0f;
++            }
++            break;
++
++        case CTRL_SM_INDEX_FOUND:
++            if (!index_found) {
++                motor->ctrl_sm_state = CTRL_SM_START;
++                motor->ctrl_sm_still_cycles = 0;
++                break;
++            }
++
++            if (abs_rpm <= rpm_deadband) {
++                if (motor->ctrl_sm_still_cycles < still_req_cycles) {
++                    motor->ctrl_sm_still_cycles++;
++                }
++                if (motor->ctrl_sm_still_cycles >= still_req_cycles) {
++                    motor->ctrl_sm_state = CTRL_SM_ENABLE;
++                }
++            } else {
++                motor->ctrl_sm_still_cycles = 0;
++            }
++            break;
++
++        case CTRL_SM_ENABLE:
++            if (!index_found) {
++                motor->ctrl_sm_state = CTRL_SM_START;
++                motor->ctrl_sm_still_cycles = 0;
++            }
++            break;
++        }
++
++        ctrl_enabled = (motor->ctrl_sm_state == CTRL_SM_ENABLE);
++
++        bool entered_enable = (prev != CTRL_SM_ENABLE) && (motor->ctrl_sm_state == CTRL_SM_ENABLE);
++
++        if (entered_enable) {
++            motor->model_v = 0.0f;
++            motor->model_accel_prev = 0.0f;
++
++            motor->model_pos_set_model = motor->unwrapped_theta_filtered;
++
++            motor->model_pos_i_term = 0.0f;
++            motor->m_speed_i_term = 0.0f;
++            motor->m_speed_prev_error = 0.0f;
++            motor->m_speed_d_filter = 0.0f;
++        }
++    }
++
++    const float erpm_abs_meas = 0.5f * (fabsf(rpm) + fabsf(motor->d_erpm_soll));
++
++    const float spd_floor    = motor->p_sched_spd_floor;
++    const float pos_floor    = motor->p_sched_pos_floor;
++    const float pos_dead     = motor->p_sched_pos_dead_erpm;
++    const float spd_sat_erpm = motor->p_sched_spd_sat_erpm;
++    const float pos_sat_erpm = motor->p_sched_pos_sat_erpm;
++
++    const float m_spd = ramp_rational_p2(erpm_abs_meas, spd_sat_erpm);
++    const float g_spd = map_floor_local(m_spd, spd_floor);
++
++    float x_pos = erpm_abs_meas - pos_dead;
++    if (x_pos < 0.0f) {
++        x_pos = 0.0f;
++    }
++
++    const float m_pos = ramp_rational_p2(x_pos, pos_sat_erpm);
++    const float g_pos = map_floor_local(m_pos, pos_floor);
++
++    const float pos_kp_eff = pos_kp * g_pos * 100.0f;
++    const float pos_ki_eff = pos_ki * g_pos * 100.0f;
++
++    const float sp_kp_eff  = conf_now->s_pid_kp * g_spd;
++    const float sp_ki_eff  = conf_now->s_pid_ki * g_spd;
++
++    if (erpm_abs_meas < 2.0f) {
++        motor->m_speed_i_term = 0.0f;
++    }
++
++    float angle_deg_now = encoder_read_deg();
++    float angle_rad_now = angle_deg_now * ((float)M_PI / 180.0f);
++
++    float delta_rad = utils_angle_difference_rad(angle_rad_now, motor->kalman_last_angle_rad);
++    motor->kalman_last_angle_rad = angle_rad_now;
++
++    motor->unwrapped_theta += delta_rad;
++    motor->kalman_last_delta_rad = delta_rad;
++
++    UTILS_LP_FAST(motor->p_gear_ratio_filtered, motor->gear_ratio_bike, 0.001f);
++    float gear_ratio = motor->p_gear_ratio_filtered;
++    float gearing = (float)(motor->p_mech_gearing / gear_ratio);
++    UTILS_LP_FAST(motor->p_incline_filtered, motor->p_incline_deg, 0.01f);
++
++    float incline_base_deg = motor->p_incline_filtered;
++    float incline_deg_cmd = incline_base_deg;
++
++    if (motor->pumptrack_enabled) {
++        float T_sec = motor->pumptrack_period_min * 60.0f;
++        if (T_sec < 1e-4f) T_sec = 1e-4f;
++
++        motor->pumptrack_time += dt;
++        if (motor->pumptrack_time >= T_sec) {
++            motor->pumptrack_time -= T_sec * floorf(motor->pumptrack_time / T_sec);
++        }
++
++        float phase = 2.0f * (float)M_PI * motor->pumptrack_time / T_sec - 0.5f * (float)M_PI;
++        incline_deg_cmd = 0.5f * incline_base_deg * (1.0f + sinf(phase));
++    } else {
++        incline_deg_cmd = incline_base_deg;
++        motor->pumptrack_time = 0.0f;
++    }
++
++    float speed_dir_ref = SIGN(motor->d_erpm_soll);
++    float slope = incline_deg_cmd * ((float)M_PI / 180.0f) * speed_dir_ref;
++    motor->incline_result = incline_deg_cmd;
++
++    const float motor_mech_radps = rpm * erpm_to_mech_radps;
++    float speed = motor_mech_radps * motor->p_wheel_radius / gearing;
++
++    float speed_ratio = fabsf(motor->d_erpm_soll) / motor->p_speed_limit_pos_control_activation;
++    float smooth_factor = speed_ratio;
++    if (smooth_factor > 1.0f) smooth_factor = 1.0f;
++
++    float F_air = 0.5f * motor->p_air_ro * motor->p_c_air * motor->c_area_s * speed * fabsf(speed);
++    float F_roll = smooth_factor * (motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope));
++    float F_incline = smooth_factor * motor->p_weight * 9.81f * sinf(slope);
++    float F_bearings = smooth_factor * (motor->p_c_bw * motor->p_k_v_bw) * speed;
++
++    float F_combine = (F_air + F_roll + F_incline + F_bearings);
++    motor->d_f_combine = F_combine;
++
++    motor->te_calculated =
++        motor->m_motor_state.iq * motor->p_kT +
++        (motor->m_motor_state.iq * motor->m_motor_state.id) * (motor->p_ld - motor->p_lq);
++
++    motor->unwrapped_theta_filtered_prev = motor->unwrapped_theta_filtered;
++    UTILS_LP_FAST(motor->unwrapped_theta_filtered, motor->unwrapped_theta, 0.15f);
++
++    const float omega_for_leso = motor_mech_radps;
++    leso3_step(motor, dt, motor->te_calculated, motor->unwrapped_theta_filtered, omega_for_leso);
++
++    const float FW_SLIP_REENG      = 20.0f;
++    const float FW_T_REENG         = 2.0f;
++    const float FW_T_DISENG        = 0.0f;
++    const float FW_T_DISENG_FORCED = -20.0f;
++
++    const float erpm_ratio_freewheel_disengage = 0.90f;
++    const float erpm_ratio_forced_disengage    = 0.70f;
++
++    float wheel_erpm = motor->d_erpm_soll;
++    float speed_dir = SIGN(wheel_erpm);
++
++    float motor_erpm = motor->m_pll_speed * radps_to_rpm;
++    float slip_rpm = (motor_erpm - wheel_erpm) * inv_pole_pairs;
++
++    float Tproj = speed_dir * motor->tp_observed;
++
++    if (!(motor->forced_freewheel || motor->freewheel_active) &&
++        (fabsf(motor_erpm) <= fabsf(wheel_erpm) * erpm_ratio_forced_disengage) &&
++        (motor->ctrl_sm_state == CTRL_SM_ENABLE) &&
++        (Tproj < FW_T_DISENG_FORCED)) {
++        motor->forced_freewheel = true;
++    }
++
++    if (motor->freewheel_enabled || motor->forced_freewheel) {
++        if (!motor->freewheel_active) {
++            if ((Tproj <= FW_T_DISENG) ||
++                (fabsf(motor_erpm) <= fabsf(wheel_erpm) * erpm_ratio_freewheel_disengage)) {
++                motor->freewheel_active = true;
++            }
++        } else {
++            if ((Tproj > FW_T_REENG) &&
++                (fabsf(slip_rpm) < FW_SLIP_REENG)) {
++                motor->freewheel_active = false;
++                motor->forced_freewheel = false;
++                motor->model_pos_i_term = 0.0f;
++                motor->model_pos_set_model = motor->unwrapped_theta_filtered;
++            }
++        }
++    } else {
++        motor->freewheel_active = false;
++        motor->forced_freewheel = false;
++    }
++
++    const bool fw = (motor->freewheel_active || motor->forced_freewheel);
++
++    const float F_drive = (motor->tp_observed * motor->c_wheel_radius_inv) * gearing;
++
++    float accel_now;
++    if (fw) {
++        accel_now = (-F_combine) / motor->p_weight;
++    } else {
++        accel_now = (F_drive - F_combine) / motor->p_weight;
++    }
++
++    motor->accel_ist = accel_now;
++
++    motor->model_v += 0.5f * (accel_now + motor->model_accel_prev) * dt;
++    motor->model_accel_prev = accel_now;
++
++    const float omega_mech = motor->model_v * gearing * motor->c_wheel_radius_inv;
++
++    motor->model_pos_set_model += omega_mech * dt;
++    motor->d_erpm_soll = omega_mech * mech_radps_to_erpm;
++
++    pos_error = motor->model_pos_set_model - motor->unwrapped_theta_filtered;
++
++    p_term_pos = pos_error * pos_kp_eff;
++
++    const float pos_corr_erpm_max = 20000.0f;
++
++    float pos_i = motor->model_pos_i_term;
++    float pos_corr_raw = p_term_pos + pos_i;
++    float pos_corr_sat = pos_corr_raw;
++
++    utils_truncate_number_abs(&pos_corr_sat, pos_corr_erpm_max);
++
++    const float Tt = 0.10f;
++    const float kaw = (Tt > 1e-6f) ? (1.0f / Tt) : 0.0f;
++
++    pos_i += dt * (pos_ki_eff * pos_error + kaw * (pos_corr_sat - pos_corr_raw));
++
++    motor->model_pos_i_term = pos_i;
++
++    pos_corr_raw = p_term_pos + motor->model_pos_i_term;
++    pos_corr_sat = pos_corr_raw;
++    utils_truncate_number_abs(&pos_corr_sat, pos_corr_erpm_max);
++    motor->speed_out_pos_controller = pos_corr_sat;
++
++    float base_speed_ref_erpm = omega_mech * mech_radps_to_erpm;
++    float speed_ref_erpm = base_speed_ref_erpm + pos_corr_sat;
++    utils_truncate_number(&speed_ref_erpm, conf_now->l_min_erpm, conf_now->l_max_erpm);
++
++    float error = speed_ref_erpm - rpm;
++    motor->speed_error = error;
++
++    p_term = error * sp_kp_eff * (1.0f / 20.0f);
++
++    d_term = (error - motor->m_speed_prev_error) * (conf_now->s_pid_kd / dt) * (1.0f / 20.0f);
++    UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
++    d_term = motor->m_speed_d_filter;
++
++    motor->m_speed_prev_error = error;
++
++    motor->T_f_combine = F_combine * motor->p_wheel_radius / gearing;
++
++    float speed_ratio2 = erpm_abs_meas / 100.0f;
++    float smooth_factor2 = speed_ratio2;
++    if (smooth_factor2 > 1.0f) smooth_factor2 = 1.0f;
++
++    float Te_ff = (-motor->Text_ext_hat_f) * smooth_factor2 * motor->p_adrc_scale;
++
++    motor->Te_set = Te_ff;
++    motor->iq_set_ff = Te_ff / motor->p_kT;
++
++    float iq_ff = motor->iq_set_ff;
++    utils_truncate_number_abs(&iq_ff, conf_now->l_current_max);
++
++    float iq_ff_norm = iq_ff * motor->c_iq_norm_inv;
++
++    motor->c_v_q_ff = iq_ff * motor->m_res_est;
++
++    float i_inc = error * sp_ki_eff * dt * (1.0f / 20.0f);
++    bool wants_accel = (i_inc > 0.0f);
++
++    if (sp_ki_eff < 1e-9f) {
++        motor->m_speed_i_term = 0.0f;
++    } else {
++        if ((motor->freewheel_active || motor->forced_freewheel) && wants_accel) {
++            motor->m_speed_i_term *= 0.98f;
++        } else {
++            motor->m_speed_i_term += i_inc;
++        }
++        utils_truncate_number_abs(&motor->m_speed_i_term, 1.0f);
++    }
++
++    motor->d_speed_soll = motor->model_v;
++
++    float output = p_term + motor->m_speed_i_term + d_term + iq_ff_norm;
++    utils_truncate_number_abs(&output, 1.0f);
++
++    if (!conf_now->s_pid_allow_braking) {
++        if (rpm > 20.0f && output < 0.0f) output = 0.0f;
++        if (rpm < -20.0f && output > 0.0f) output = 0.0f;
++    }
++
++    if (fw) {
++        motor->model_pos_i_term = 0.0f;
++        motor->m_speed_i_term   = 0.0f;
++        motor->m_speed_prev_error = 0.0f;
++        motor->m_speed_d_filter = 0.0f;
++        output = 0.0f;
++        motor->c_v_q_ff = 0.0f;
++    }
++
++    if (!ctrl_enabled) {
++        motor->m_speed_i_term = 0.0f;
++        motor->m_speed_prev_error = 0.0f;
++        motor->m_speed_d_filter = 0.0f;
++        motor->model_pos_i_term = 0.0f;
++
++        output = 0.0f;
++        motor->c_v_q_ff = 0.0f;
++        motor->iq_set_ff = 0.0f;
++        motor->Te_set = 0.0f;
++    }
++
++    motor->d_i_res = -iq_ff;
++
++    motor->m_iq_set = output * (conf_now->lo_current_max * conf_now->l_current_max_scale);
++
++    motor->status_bits = 0;
++    motor->status_bits |= true << STATUS_BIT_SPEED_CONTROL_ACTIVE;
++    motor->status_bits |= (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
++    motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_START) << STATUS_BIT_CTRL_SM_START;
++    motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_INDEX_FOUND) << STATUS_BIT_CTRL_SM_INDEX_FOUND;
++    motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_ENABLE) << STATUS_BIT_CTRL_SM_ENABLE;
++    motor->status_bits |= ((uint32_t)1U) << 5;
++    motor->status_bits |= ((uint32_t)1U) << 6;
++    motor->status_bits |= ((uint32_t)1U) << 7;
++    motor->status_bits |= ((uint32_t)1U) << 16;
++    motor->status_bits |= ((uint32_t)1U) << 31;
++}
+@@ -766,0 +1161,135 @@ void foc_precalc_values(motor_all_state_t *motor) {
++// =========================
++// Auxiliary / helper functions
++// =========================
++
++inline float sgn_db(float x, float dead) {
++    if (x >  dead) return  1.0f;
++    if (x < -dead) return -1.0f;
++    return 0.0f;
++}
++
++float smooth_force(float mag, float v, float v_eps) {
++    return mag * (v / v_eps); // smoothly goes negative if v<0
++}
++
++float fal_gain(float e, float alpha, float delta, float g0) {
++    float ae = fabsf(e);
++    if (ae <= delta) {
++        return g0 * e;
++    } else {
++        float scale = g0 * powf(delta, 1.0f - alpha);
++        return copysignf(scale * powf(ae, alpha), e);
++    }
++}
++
++inline float falf(float e, float alpha, float delta) {
++    float ae = fabsf(e);
++    if (ae <= delta) {
++        return e / powf(delta, 1.0f - alpha);
++    } else {
++        return copysignf(powf(ae, alpha), e);
++    }
++}
++
++inline float ramp_rational_ref(float x, float x_ref, float p) {
++    const float target = 0.999f;
++
++    if (!(x > 0.0f)) return 0.0f;
++    if (!(x_ref > 1e-6f)) return 1.0f;
++    if (!(p > 1e-3f)) p = 1.0f;
++
++    const float ratio = target / (1.0f - target);
++    const float x0    = x_ref / powf(ratio, 1.0f / p);
++
++    float r = powf(x / x0, p);
++    float m = r / (1.0f + r);
++
++    if (m < 0.0f) m = 0.0f;
++    if (m > 1.0f) m = 1.0f;
++    return m;
++}
++
++inline float map_floor(float m, float floor) {
++    if (floor < 0.0f) floor = 0.0f;
++    if (floor > 1.0f) floor = 1.0f;
++    return floor + (1.0f - floor) * m;
++}
++
++inline float ramp_rational_x0(float x, float x0, float p) {
++    if (!(x > 0.0f)) return 0.0f;
++    if (!(x0 > 1e-6f)) return 1.0f;
++    if (!(p > 1e-3f)) p = 1.0f;
++
++    float r = powf(x / x0, p);
++    float m = r / (1.0f + r);
++
++    if (m < 0.0f) m = 0.0f;
++    if (m > 1.0f) m = 1.0f;
++    return m;
++}
++
++inline float fal_nleso_erpm(float e_th_rad,
++                            float alpha,
++                            float delta_erpm,
++                            float dt,
++                            float pole_pairs)
++{
++    const float k_erpm = (60.0f / (2.0f * (float)M_PI)) * pole_pairs;
++
++    if (!(dt > 0.0f) || !(k_erpm > 0.0f)) {
++        return e_th_rad;
++    }
++
++    const float e_erpm = (e_th_rad / dt) * k_erpm;
++
++    const float ae = fabsf(e_erpm);
++    if (ae <= delta_erpm) {
++        return e_th_rad;
++    } else {
++        const float scale = powf(delta_erpm, 1.0f - alpha);
++        const float e_erpm_nl = copysignf(scale * powf(ae, alpha), e_erpm);
++        return (e_erpm_nl / k_erpm) * dt;
++    }
++}
++
++inline float rate_from_abs_omega(float om_abs, float w1,
++                                 float rate0, float rate1) {
++    if (!(w1 > 1e-6f)) return rate1;
++    float t = clampf(om_abs / w1, 0.0f, 1.0f);
++    return rate0 + (rate1 - rate0) * t;
++}
++
++inline float slew_limit(float x, float x_prev, float rate, float dt) {
++    const float dx_max = rate * dt;
++    return x_prev + clampf(x - x_prev, -dx_max, dx_max);
++}
++
++inline float clampf(float x, float lo, float hi) {
++    return (x < lo) ? lo : (x > hi) ? hi : x;
++}
++
++float map_floor_local(float m, float floor) {
++    utils_truncate_number(&floor, 0.0f, 1.0f);
++
++    if (m < 0.0f) m = 0.0f;
++    if (m > 1.0f) m = 1.0f;
++
++    return floor + (1.0f - floor) * m;
++}
++
++float ramp_rational_p2(float x, float x_sat) {
++    if (x <= 0.0f) {
++        return 0.0f;
++    }
++
++    if (x_sat < 1e-6f) {
++        return 1.0f;
++    }
++
++    const float x0 = 0.5f * x_sat;
++    const float x2  = x * x;
++    const float x02 = x0 * x0;
++
++    return x2 / (x2 + x02);
++}
++
+diff --git a/motor/foc_math.h b/motor/foc_math.h
+index 3f1eb3e1..597169eb 100644
+--- a/motor/foc_math.h
++++ b/motor/foc_math.h
+@@ -112,0 +113,14 @@ typedef enum {
++typedef enum {
++	STATUS_BIT_SPEED_CONTROL_ACTIVE   = 0,
++	STATUS_BIT_FORCED_FREEWHEEL       = 1,
++	STATUS_BIT_CTRL_SM_START          = 2,
++	STATUS_BIT_CTRL_SM_INDEX_FOUND    = 3,
++	STATUS_BIT_CTRL_SM_ENABLE         = 4
++} status_bits_t;
++
++typedef enum {
++	CTRL_SM_START = 0,
++	CTRL_SM_INDEX_FOUND = 1,
++	CTRL_SM_ENABLE = 2
++} ctrl_sm_state_t;
++
+@@ -247,0 +262,168 @@ typedef struct {
++
++	// --- Bike simulator parameters ---
++	float gear_ratio_bike;
++	float p_air_ro;
++	float p_c_rr;
++	float p_weight;
++	float p_As;
++	float p_c_air;
++	float p_c_bw;
++	float p_c_wl;
++	float p_wheel_radius;
++	float p_r_bearings;
++	float p_k_v_bw;
++	float p_k_area;
++	float p_height;
++	float p_fo_hz;
++	float p_gz_hz;
++	float p_fc_TLPF;
++	float p_adrc_scale;
++	float p_speed_limit_pos_control_activation;
++	float p_kp_pos;
++	float p_ki_pos;
++	float p_kd_pos;
++	float p_incline_deg;
++
++	float p_sched_spd_floor;
++	float p_sched_pos_floor;
++	float p_sched_pos_dead_erpm;
++	float p_sched_spd_sat_erpm;
++	float p_sched_pos_sat_erpm;
++
++	float p_J;
++	float p_kT;
++	float p_mech_gearing;
++	float p_B;
++	float p_Tc;
++	float p_Tc_ws;
++
++	// --- Runtime flags / mode handling ---
++	bool pumptrack_enabled;
++	float pumptrack_time;
++	float pumptrack_period_min;
++
++	int ctrl_sm_still_cycles;
++	int ctrl_sm_state;
++
++	bool forced_freewheel;
++	bool freewheel_active;
++	bool freewheel_enabled;
++
++	// --- Parameter live-tuning helpers ---
++	int param_index;
++	float param_value;
++
++	float p_incline_filtered;
++	float p_gear_ratio_filtered;
++	float incline_result;
++
++	// --- Cached constants / precomputed values ---
++	float c_pole_pairs;
++	float c_inv_pole_pairs;
++	float c_radps_to_rpm;
++	float c_rpm_to_radps;
++	float c_mech_radps_to_erpm;
++	float c_erpm_to_mech_radps;
++
++	float c_area_s;
++	float c_wheel_radius_inv;
++	float c_iq_norm_inv;
++
++	float c_b0;
++	float c_b1;
++	float c_b2;
++	float c_b3;
++	float c_gz;
++	float c_fc_2pi;
++
++	float c_om_abs_max;
++	float c_z_abs_max;
++
++	float c_sched_spd_floor;
++	float c_sched_pos_floor;
++	float c_sched_pos_dead_erpm;
++	float c_sched_spd_sat_erpm;
++	float c_sched_pos_sat_erpm;
++
++	// values_for_debugging
++	float d_speed;
++	float d_f_air;
++	float d_f_combine;
++	float d_f_bearings;
++	float d_f_roll;
++	float d_erpm_soll; // desired rpm
++	float d_i_res;
++
++	// feedforward control
++	float c_v_q_ff;
++
++	// runtime / observer / model states
++	float accel_ist;
++	int_fast64_t tp_observed_fp;
++
++	// soll speed (model speed)
++	float d_speed_soll;
++	float d_f_motor;
++
++	// extra LESO / control / model states
++	float leso_z4;              // [rad/s^3]
++	float T_f_combine;
++	float leso_omega_in;
++	float tp_observed;
++	float te_calculated;
++
++	float model_v;
++	float model_accel_prev;
++
++	int32_t status_bits;
++	float Tf_hat;
++
++	float fw_timer_s;
++
++	// position setpoint for cascade control
++	float model_pos_set_model;
++	float model_pos_i_term;
++	float model_pos_prev_error;
++	float model_pos_prev_proc;
++	float model_pos_d_filter;
++	float model_pos_dt_int;
++
++	float last_tp;
++	float last_rpm;
++	float rpm_inc_filter_th;
++
++	float unwrapped_theta;
++	float unwrapped_theta_filtered;
++	float unwrapped_theta_filtered_prev;
++	float last_angle_rad;
++	float last_delta_rad;
++
++	// erpm simulation for frequency response test
++	float simulated_erpm;
++	float erpm_time;
++
++	// LESO states
++	float leso_th;    // theta_hat [rad]
++	float leso_om;    // omega_hat [rad/s]
++	float leso_z;     // disturbance acceleration z_hat [rad/s^2]
++
++	float Tdist_total_hat;
++	float Tdist_total_hat_f;
++
++	// feedforward outputs / logging
++	float Te_set;
++	float iq_set_ff;
++
++	// LESO outputs
++	float Text_ext_hat;
++	float Text_ext_hat_f;
++
++	// angle unwrapping using encoder_read_deg()
++	float kalman_last_angle_rad;
++	float kalman_last_delta_rad;
++
++	float speed_out_pos_controller;
++	float speed_error;
++
++	// cached optional shape parameter
++	float c_sched_shape_p;
+@@ -264,0 +447,18 @@ void foc_precalc_values(motor_all_state_t *motor);
++void leso3_step(
++	motor_all_state_t *m,
++	float dt,
++	float Te_meas,
++	float theta_meas,
++	float omega
++);
++
++float clampf(float x, float lo, float hi);
++float slew_limit(float x, float x_prev, float rate, float dt);
++float rate_from_abs_omega(float om_abs, float w1, float rate0, float rate1);
++float map_floor(float m, float floor);
++float ramp_rational_x0(float x, float x0, float p);
++float map_floor_local(float m, float floor);
++float ramp_rational_x0_p2(float x, float x0);
++float ramp_rational_p2(float x, float x_sat);
++void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t *motor);
++
+diff --git a/motor/mcpwm_foc.c b/motor/mcpwm_foc.c
+index e9f3a469..fd0cff2b 100644
+--- a/motor/mcpwm_foc.c
++++ b/motor/mcpwm_foc.c
+@@ -63,0 +64 @@ static void hfi_update(volatile motor_all_state_t *motor, float dt);
++
+@@ -373,0 +375,113 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
++
++		// Parameter initialization
++	m_motor_1.p_air_ro = 1.2f;                 // air density
++	m_motor_1.p_c_rr = 0.0055f;                // rolling friction
++	m_motor_1.p_weight = 85.0f + 12.0f;
++	m_motor_1.p_As = 0.509f;                   // section area
++	m_motor_1.p_c_air = 0.86f;                 // air resistance coefficient
++	m_motor_1.p_c_bw = 0.0015f;
++	m_motor_1.p_c_wl = 0.0015f;
++	m_motor_1.p_wheel_radius = 0.3556f;        // bike wheel radius
++	m_motor_1.p_r_bearings = 0.014f;
++	m_motor_1.p_k_v_bw = 0.00001f;
++	m_motor_1.p_k_area = 0.14f;
++	m_motor_1.p_height = 1.75f;
++
++	m_motor_1.p_fo_hz = 25.0f;
++	m_motor_1.p_gz_hz = 0.2f;
++	m_motor_1.p_fc_TLPF = 100.0f;
++	m_motor_1.p_adrc_scale = 1.0f;
++	m_motor_1.p_speed_limit_pos_control_activation = 400.0f;
++
++	m_motor_1.leso_z4 = 0.0f;
++
++	m_motor_1.p_kp_pos = m_motor_1.m_conf->p_pid_kp;
++	m_motor_1.p_ki_pos = m_motor_1.m_conf->p_pid_ki;
++	m_motor_1.p_kd_pos = 0.0f;
++
++	m_motor_1.p_incline_deg = 0.0f;
++
++	m_motor_1.p_sched_spd_floor     = 0.30f;
++	m_motor_1.p_sched_pos_floor     = 0.30f;
++	m_motor_1.p_sched_pos_dead_erpm = 10.0f;
++	m_motor_1.p_sched_spd_sat_erpm  = 1000.0f;
++	m_motor_1.p_sched_pos_sat_erpm  = 1000.0f;
++
++	m_motor_1.pumptrack_enabled = false;
++	m_motor_1.pumptrack_time = 0.0f;
++	m_motor_1.pumptrack_period_min = 0.5f;
++
++	m_motor_1.ctrl_sm_still_cycles = 0;
++	m_motor_1.ctrl_sm_state = CTRL_SM_START;
++
++	m_motor_1.forced_freewheel = false;
++	m_motor_1.freewheel_active = false;
++	m_motor_1.freewheel_enabled = false;
++
++	m_motor_1.model_accel_prev = 0.0f;
++	m_motor_1.model_v = 0.0f;
++
++	m_motor_1.fw_timer_s = 0.0f;
++
++	m_motor_1.erpm_time = 0.0f;
++	m_motor_1.simulated_erpm = 0.0f;
++
++	m_motor_1.model_pos_set_model = 0.0f;
++	m_motor_1.model_pos_i_term = 0.0f;
++	m_motor_1.model_pos_prev_error = 0.0f;
++	m_motor_1.model_pos_prev_proc = 0.0f;
++	m_motor_1.model_pos_dt_int = 0.0f;
++
++	m_motor_1.leso_th = 0.0f;
++	m_motor_1.leso_om = 0.0f;
++	m_motor_1.leso_z = 0.0f;
++
++	m_motor_1.Text_ext_hat = 0.0f;
++	m_motor_1.Text_ext_hat_f = 0.0f;
++
++	m_motor_1.last_tp = 0.0f;
++	m_motor_1.last_rpm = 0.0f;
++	m_motor_1.rpm_inc_filter_th = 3.0f;
++
++	m_motor_1.unwrapped_theta = 0.0f;
++	m_motor_1.unwrapped_theta_filtered = 0.0f;
++	m_motor_1.unwrapped_theta_filtered_prev = 0.0f;
++	m_motor_1.last_angle_rad = 0.0f;
++	m_motor_1.last_delta_rad = 0.0f;
++
++	m_motor_1.Tf_hat = 0.0f;
++	m_motor_1.leso_omega_in = 0.0f;
++
++	m_motor_1.gear_ratio_bike = 2.575f;
++
++	m_motor_1.p_J = 0.0730f;
++	m_motor_1.p_kT = (float)(1.5f * 0.01927f * 23.0f);
++	m_motor_1.p_mech_gearing = (240.0f / 92.2f);
++	m_motor_1.p_B = 0.0576f;
++	m_motor_1.p_Tc = 2.0f * m_motor_1.p_kT;
++	m_motor_1.p_Tc_ws = 1.0f;
++
++	// Initialization from encoder
++	{
++		float angle_deg0 = encoder_read_deg();
++		if (!isfinite(angle_deg0)) {
++			angle_deg0 = 0.0f;
++		}
++		float angle_rad0 = angle_deg0 * (M_PI / 180.0f);
++
++		m_motor_1.kalman_last_angle_rad = angle_rad0;
++		m_motor_1.kalman_last_delta_rad = 0.0f;
++
++		m_motor_1.unwrapped_theta = angle_rad0;
++	}
++
++	m_motor_1.Tdist_total_hat = 0.0f;
++	m_motor_1.Tdist_total_hat_f = 0.0f;
++
++	m_motor_1.param_index = 1;
++	m_motor_1.param_value = 2.0f;
++	m_motor_1.p_incline_filtered = 0.0f;
++	m_motor_1.p_gear_ratio_filtered = 3.0f;
++	m_motor_1.c_v_q_ff = 0.0f;
++
++	motor_update_cached_params(&m_motor_1);
+@@ -1331,0 +1446,590 @@ float mcpwm_foc_get_tot_current_in_filtered(void) {
++
++float mcpwm_foc_get_last_adc_isr_duration(void) {
++	return m_last_adc_isr_duration;
++}
++
++void mcpwm_foc_set_gear_ratio(float gear_ratio) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	motor->gear_ratio_bike = gear_ratio;
++}
++
++float mcpwm_foc_get_gear_ratio(void) {
++	return get_motor_now()->gear_ratio_bike;
++}
++
++float mcpwm_foc_get_f_bearings(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor->d_f_bearings;
++}
++
++float mcpwm_foc_get_f_roll(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor->d_f_roll;
++}
++
++float mcpwm_foc_get_erpm_soll(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor->d_erpm_soll;
++}
++
++float mcpwm_foc_get_uw_theta(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor->unwrapped_theta;
++}
++
++float mcpwm_foc_get_leso_omega(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor->leso_om * 9.54929f * (motor->m_conf->si_motor_poles / 2.0f);
++}
++
++float mcpwm_foc_get_tp_observed(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor->tp_observed;
++}
++
++float mcpwm_foc_get_model_speed(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor->d_speed_soll;
++}
++
++float mcpwm_foc_get_i_res(void) {
++	return get_motor_now()->d_i_res;
++}
++
++float mcpwm_foc_get_speed(void) {
++	return get_motor_now()->d_speed;
++}
++
++float mcpwm_foc_get_f_air(void) {
++	return get_motor_now()->d_f_air;
++}
++
++float mcpwm_foc_get_f_combine(void) {
++	return get_motor_now()->d_f_combine;
++}
++
++float mcpwm_foc_get_tf(void) {
++	return get_motor_now()->Tf_hat;
++}
++
++float mcpwm_foc_get_uw_angle_sp(void) {
++	return get_motor_now()->model_pos_set_model;
++}
++
++float mcpwm_foc_get_pos_term_speed(void) {
++	return get_motor_now()->speed_out_pos_controller;
++}
++
++float mcpwm_foc_get_speed_error(void) {
++	return get_motor_now()->speed_error;
++}
++
++float mcpwm_foc_t_f_combine(void) {
++	return get_motor_now()->T_f_combine;
++}
++
++float mcpwm_foc_get_t_e(void) {
++	return get_motor_now()->te_calculated;
++}
++
++uint32_t mcpwm_foc_get_status_bits(void) {
++	return get_motor_now()->status_bits;
++}
++
++float mcpwm_get_incline_deg_ist(void) {
++	return get_motor_now()->incline_result;
++}
++
++void motor_update_cached_params(volatile motor_all_state_t *m) {
++	if (!m || !m->m_conf) {
++		return;
++	}
++
++	const float two_pi = 2.0f * (float)M_PI;
++
++	float pole_pairs = 0.5f * (float)m->m_conf->si_motor_poles;
++	if (!(pole_pairs > 0.0f)) {
++		pole_pairs = 1.0f;
++	}
++
++	m->c_pole_pairs         = pole_pairs;
++	m->c_inv_pole_pairs     = 1.0f / pole_pairs;
++	m->c_radps_to_rpm       = 60.0f / two_pi;
++	m->c_rpm_to_radps       = two_pi / 60.0f;
++	m->c_mech_radps_to_erpm = m->c_radps_to_rpm * pole_pairs;
++	m->c_erpm_to_mech_radps = m->c_rpm_to_radps / pole_pairs;
++
++	m->c_area_s = m->p_k_area * m->p_height * m->p_height;
++
++	if (fabsf(m->p_wheel_radius) > 1e-9f) {
++		m->c_wheel_radius_inv = 1.0f / m->p_wheel_radius;
++	} else {
++		m->c_wheel_radius_inv = 0.0f;
++	}
++
++	float iq_norm = m->m_conf->lo_current_max * m->m_conf->l_current_max_scale;
++	if (fabsf(iq_norm) > 1e-9f) {
++		m->c_iq_norm_inv = 1.0f / iq_norm;
++	} else {
++		m->c_iq_norm_inv = 0.0f;
++	}
++
++	float spd_floor = m->p_sched_spd_floor;
++	float pos_floor = m->p_sched_pos_floor;
++	float pos_dead_erpm = m->p_sched_pos_dead_erpm;
++	float spd_sat_erpm = m->p_sched_spd_sat_erpm;
++	float pos_sat_erpm = m->p_sched_pos_sat_erpm;
++
++	utils_truncate_number(&spd_floor, 0.0f, 1.0f);
++	utils_truncate_number(&pos_floor, 0.0f, 1.0f);
++	utils_truncate_number(&pos_dead_erpm, 0.0f, 100000.0f);
++	utils_truncate_number(&spd_sat_erpm, 1.0f, 100000.0f);
++	utils_truncate_number(&pos_sat_erpm, 1.0f, 100000.0f);
++
++	if (pos_sat_erpm <= pos_dead_erpm) {
++		pos_sat_erpm = pos_dead_erpm + 1.0f;
++	}
++
++	m->c_sched_spd_floor     = spd_floor;
++	m->c_sched_pos_floor     = pos_floor;
++	m->c_sched_pos_dead_erpm = pos_dead_erpm;
++	m->c_sched_spd_sat_erpm  = spd_sat_erpm;
++	m->c_sched_pos_sat_erpm  = pos_sat_erpm;
++
++	float J = m->p_J;
++	if (!(J > 0.0f)) {
++		J = 1.0f;
++	}
++
++	m->c_b0 = 1.0f / J;
++
++	const float wo = two_pi * m->p_fo_hz;
++	m->c_b1 = 3.0f * wo;
++	m->c_b2 = 3.0f * wo * wo;
++	m->c_b3 = wo * wo * wo;
++	m->c_gz = two_pi * m->p_gz_hz;
++	m->c_fc_2pi = two_pi * m->p_fc_TLPF;
++
++	{
++		float om_abs_max = 500.0f;
++		const float erpm_max = (float)m->m_conf->l_max_erpm;
++		const float om_mech_max = (erpm_max * m->c_inv_pole_pairs) * m->c_rpm_to_radps;
++		om_abs_max = 1.2f * om_mech_max;
++		if (!(om_abs_max > 0.0f)) {
++			om_abs_max = 500.0f;
++		}
++		m->c_om_abs_max = om_abs_max;
++	}
++
++	{
++		const float Imax = fabsf(m->m_conf->lo_current_max * m->m_conf->l_current_max_scale);
++		const float Te_max = Imax * fabsf(m->p_kT) * 1.2f + 0.5f;
++		m->c_z_abs_max = Te_max * m->c_b0;
++	}
++}
++
++static void mcpwm_foc_update_bike_parameter_caches(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	if (!motor) {
++		return;
++	}
++
++	const mc_configuration *conf = motor->m_conf;
++	if (!conf) {
++		return;
++	}
++
++	const float pole_pairs = conf->si_motor_poles / 2.0f;
++
++	motor->c_pole_pairs = pole_pairs;
++	motor->c_inv_pole_pairs = (fabsf(pole_pairs) > 1e-9f) ? (1.0f / pole_pairs) : 0.0f;
++
++	motor->c_radps_to_rpm = 60.0f / (2.0f * (float)M_PI);
++	motor->c_rpm_to_radps = (2.0f * (float)M_PI) / 60.0f;
++	motor->c_mech_radps_to_erpm = pole_pairs * motor->c_radps_to_rpm;
++	motor->c_erpm_to_mech_radps = (fabsf(pole_pairs) > 1e-9f) ?
++			((2.0f * (float)M_PI) / (60.0f * pole_pairs)) : 0.0f;
++
++	motor->c_area_s = motor->p_k_area * motor->p_height * motor->p_height;
++	motor->c_wheel_radius_inv = (fabsf(motor->p_wheel_radius) > 1e-9f) ?
++			(1.0f / motor->p_wheel_radius) : 0.0f;
++
++	const float iq_max = conf->l_current_max * conf->l_current_max_scale;
++	motor->c_iq_norm_inv = (fabsf(iq_max) > 1e-9f) ? (1.0f / iq_max) : 0.0f;
++
++	motor->c_b0 = (motor->p_J > 1e-9f) ? (1.0f / motor->p_J) : 0.0f;
++
++	const float wo = 2.0f * (float)M_PI * motor->p_fo_hz;
++	motor->c_b1 = 3.0f * wo;
++	motor->c_b2 = 3.0f * wo * wo;
++	motor->c_b3 = wo * wo * wo;
++
++	motor->c_gz = 2.0f * (float)M_PI * motor->p_gz_hz;
++	motor->c_fc_2pi = 2.0f * (float)M_PI * motor->p_fc_TLPF;
++
++	motor->c_z_abs_max = 80.0f / motor->p_J;
++	motor->c_om_abs_max = 1e6f;
++
++	float spd_floor = motor->p_sched_spd_floor;
++	float pos_floor = motor->p_sched_pos_floor;
++	float pos_dead_erpm = motor->p_sched_pos_dead_erpm;
++	float spd_sat_erpm = motor->p_sched_spd_sat_erpm;
++	float pos_sat_erpm = motor->p_sched_pos_sat_erpm;
++
++	utils_truncate_number(&spd_floor, 0.0f, 1.0f);
++	utils_truncate_number(&pos_floor, 0.0f, 1.0f);
++	utils_truncate_number(&pos_dead_erpm, 0.0f, 100000.0f);
++	utils_truncate_number(&spd_sat_erpm, 1.0f, 100000.0f);
++	utils_truncate_number(&pos_sat_erpm, 1.0f, 100000.0f);
++
++	if (pos_sat_erpm <= pos_dead_erpm) {
++		pos_sat_erpm = pos_dead_erpm + 1.0f;
++	}
++
++	motor->c_sched_spd_floor     = spd_floor;
++	motor->c_sched_pos_floor     = pos_floor;
++	motor->c_sched_pos_dead_erpm = pos_dead_erpm;
++	motor->c_sched_spd_sat_erpm  = spd_sat_erpm;
++	motor->c_sched_pos_sat_erpm  = pos_sat_erpm;
++}
++void mcpwm_foc_set_bike_runtime(float gear_ratio_bike,
++								float incline_deg,
++								bool pumptrack_enabled,
++								bool freewheel_enabled,
++								float pumptrack_period_min) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	if (!motor) {
++		return;
++	}
++
++	if (!isfinite(gear_ratio_bike)) {
++		gear_ratio_bike = motor->gear_ratio_bike;
++	}
++	if (!isfinite(incline_deg)) {
++		incline_deg = motor->p_incline_deg;
++	}
++	if (!isfinite(pumptrack_period_min)) {
++		pumptrack_period_min = motor->pumptrack_period_min;
++	}
++
++	utils_truncate_number(&gear_ratio_bike, 0.75f, 4.4f);
++	utils_truncate_number(&incline_deg, -10.0f, 10.0f);
++	utils_truncate_number(&pumptrack_period_min, 0.1f, 60.0f);
++
++	motor->gear_ratio_bike = gear_ratio_bike;
++	motor->p_incline_deg = incline_deg;
++	motor->pumptrack_enabled = pumptrack_enabled;
++	motor->freewheel_enabled = freewheel_enabled;
++	motor->pumptrack_period_min = pumptrack_period_min;
++}
++
++void mcpwm_foc_set_bike_sim_params(float p_air_ro,
++								   float p_c_rr,
++								   float p_weight,
++								   float p_As,
++								   float p_c_air,
++								   float p_c_bw,
++								   float p_c_wl,
++								   float p_wheel_radius,
++								   float p_mech_gearing,
++								   float p_r_bearings,
++								   float p_k_v_bw,
++								   float p_J,
++								   float p_B,
++								   float p_k_area,
++								   float p_height,
++								   float p_speed_limit_pos_control_activation) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	if (!motor) {
++		return;
++	}
++
++	if (!isfinite(p_air_ro))  p_air_ro = motor->p_air_ro;
++	if (!isfinite(p_c_rr))    p_c_rr = motor->p_c_rr;
++	if (!isfinite(p_weight))  p_weight = motor->p_weight;
++	if (!isfinite(p_As))      p_As = motor->p_As;
++	if (!isfinite(p_c_air))   p_c_air = motor->p_c_air;
++	if (!isfinite(p_c_bw))    p_c_bw = motor->p_c_bw;
++	if (!isfinite(p_c_wl))    p_c_wl = motor->p_c_wl;
++	if (!isfinite(p_wheel_radius)) p_wheel_radius = motor->p_wheel_radius;
++	if (!isfinite(p_mech_gearing)) p_mech_gearing = motor->p_mech_gearing;
++	if (!isfinite(p_r_bearings))   p_r_bearings = motor->p_r_bearings;
++	if (!isfinite(p_k_v_bw))       p_k_v_bw = motor->p_k_v_bw;
++	if (!isfinite(p_J))            p_J = motor->p_J;
++	if (!isfinite(p_B))            p_B = motor->p_B;
++	if (!isfinite(p_k_area))       p_k_area = motor->p_k_area;
++	if (!isfinite(p_height))       p_height = motor->p_height;
++	if (!isfinite(p_speed_limit_pos_control_activation)) {
++		p_speed_limit_pos_control_activation = motor->p_speed_limit_pos_control_activation;
++	}
++
++	utils_truncate_number(&p_air_ro, 0.5f, 2.0f);
++	utils_truncate_number(&p_c_rr, 0.0f, 0.1f);
++	utils_truncate_number(&p_weight, 1.0f, 300.0f);
++	utils_truncate_number(&p_As, 0.0f, 5.0f);
++	utils_truncate_number(&p_c_air, 0.0f, 5.0f);
++	utils_truncate_number(&p_c_bw, 0.0f, 100.0f);
++	utils_truncate_number(&p_c_wl, 0.0f, 100.0f);
++	utils_truncate_number(&p_wheel_radius, 0.01f, 2.0f);
++	utils_truncate_number(&p_mech_gearing, 0.01f, 1000.0f);
++	utils_truncate_number(&p_r_bearings, 0.0f, 10.0f);
++	utils_truncate_number(&p_k_v_bw, 0.0f, 1000.0f);
++	utils_truncate_number(&p_J, 1e-8f, 100.0f);
++	utils_truncate_number(&p_B, 0.0f, 1000.0f);
++	utils_truncate_number(&p_k_area, 0.0f, 5.0f);
++	utils_truncate_number(&p_height, 0.0f, 5.0f);
++	utils_truncate_number(&p_speed_limit_pos_control_activation, 0.0f, 5000.0f);
++
++	motor->p_air_ro = p_air_ro;
++	motor->p_c_rr = p_c_rr;
++	motor->p_weight = p_weight;
++	motor->p_As = p_As;
++	motor->p_c_air = p_c_air;
++	motor->p_c_bw = p_c_bw;
++	motor->p_c_wl = p_c_wl;
++	motor->p_wheel_radius = p_wheel_radius;
++	motor->p_mech_gearing = p_mech_gearing;
++	motor->p_r_bearings = p_r_bearings;
++	motor->p_k_v_bw = p_k_v_bw;
++	motor->p_J = p_J;
++	motor->p_B = p_B;
++	motor->p_k_area = p_k_area;
++	motor->p_height = p_height;
++	motor->p_speed_limit_pos_control_activation = p_speed_limit_pos_control_activation;
++
++	mcpwm_foc_update_bike_parameter_caches();
++}
++
++void mcpwm_foc_set_control_params(float p_fo_hz,
++								  float p_gz_hz,
++								  float p_fc_TLPF,
++								  float p_adrc_scale,
++								  float p_sched_spd_floor,
++								  float p_sched_pos_floor,
++								  float p_sched_pos_dead_erpm,
++								  float p_sched_spd_sat_erpm,
++								  float p_sched_pos_sat_erpm) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	if (!motor) {
++		return;
++	}
++
++	if (!isfinite(p_fo_hz))               p_fo_hz = motor->p_fo_hz;
++	if (!isfinite(p_gz_hz))               p_gz_hz = motor->p_gz_hz;
++	if (!isfinite(p_fc_TLPF))             p_fc_TLPF = motor->p_fc_TLPF;
++	if (!isfinite(p_adrc_scale))          p_adrc_scale = motor->p_adrc_scale;
++
++	if (!isfinite(p_sched_spd_floor))     p_sched_spd_floor = motor->p_sched_spd_floor;
++	if (!isfinite(p_sched_pos_floor))     p_sched_pos_floor = motor->p_sched_pos_floor;
++	if (!isfinite(p_sched_pos_dead_erpm)) p_sched_pos_dead_erpm = motor->p_sched_pos_dead_erpm;
++	if (!isfinite(p_sched_spd_sat_erpm))  p_sched_spd_sat_erpm = motor->p_sched_spd_sat_erpm;
++	if (!isfinite(p_sched_pos_sat_erpm))  p_sched_pos_sat_erpm = motor->p_sched_pos_sat_erpm;
++
++	utils_truncate_number(&p_fo_hz, 0.0f, 50.0f);
++	utils_truncate_number(&p_gz_hz, 0.0f, 2.0f);
++	utils_truncate_number(&p_fc_TLPF, 0.0f, 5000.0f);
++	utils_truncate_number(&p_adrc_scale, 0.0f, 1.0f);
++
++	utils_truncate_number(&p_sched_spd_floor, 0.0f, 1.0f);
++	utils_truncate_number(&p_sched_pos_floor, 0.0f, 1.0f);
++	utils_truncate_number(&p_sched_pos_dead_erpm, 0.0f, 100000.0f);
++	utils_truncate_number(&p_sched_spd_sat_erpm, 1.0f, 100000.0f);
++	utils_truncate_number(&p_sched_pos_sat_erpm, 1.0f, 100000.0f);
++
++	if (p_sched_pos_sat_erpm <= p_sched_pos_dead_erpm) {
++		p_sched_pos_sat_erpm = p_sched_pos_dead_erpm + 1.0f;
++	}
++
++	motor->p_fo_hz = p_fo_hz;
++	motor->p_gz_hz = p_gz_hz;
++	motor->p_fc_TLPF = p_fc_TLPF;
++	motor->p_adrc_scale = p_adrc_scale;
++
++	motor->p_sched_spd_floor = p_sched_spd_floor;
++	motor->p_sched_pos_floor = p_sched_pos_floor;
++	motor->p_sched_pos_dead_erpm = p_sched_pos_dead_erpm;
++	motor->p_sched_spd_sat_erpm = p_sched_spd_sat_erpm;
++	motor->p_sched_pos_sat_erpm = p_sched_pos_sat_erpm;
++
++	mcpwm_foc_update_bike_parameter_caches();
++}
++
++float mcpwm_foc_get_p_sched_spd_floor(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_sched_spd_floor : 0.0f;
++}
++
++float mcpwm_foc_get_p_sched_pos_floor(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_sched_pos_floor : 0.0f;
++}
++
++float mcpwm_foc_get_p_sched_pos_dead_erpm(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_sched_pos_dead_erpm : 0.0f;
++}
++
++float mcpwm_foc_get_p_sched_spd_sat_erpm(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_sched_spd_sat_erpm : 0.0f;
++}
++
++float mcpwm_foc_get_p_sched_pos_sat_erpm(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_sched_pos_sat_erpm : 0.0f;
++}
++
++float mcpwm_foc_get_gear_ratio_bike(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->gear_ratio_bike : 0.0f;
++}
++
++float mcpwm_foc_get_p_incline_deg(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_incline_deg : 0.0f;
++}
++
++bool mcpwm_foc_get_pumptrack_enabled(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->pumptrack_enabled : false;
++}
++
++bool mcpwm_foc_get_freewheel_enabled(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->freewheel_enabled : false;
++}
++
++float mcpwm_foc_get_pumptrack_period_min(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->pumptrack_period_min : 0.0f;
++}
++
++float mcpwm_foc_get_p_air_ro(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_air_ro : 0.0f;
++}
++
++float mcpwm_foc_get_p_c_rr(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_c_rr : 0.0f;
++}
++
++float mcpwm_foc_get_p_weight(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_weight : 0.0f;
++}
++
++float mcpwm_foc_get_p_As(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_As : 0.0f;
++}
++
++float mcpwm_foc_get_p_c_air(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_c_air : 0.0f;
++}
++
++float mcpwm_foc_get_p_c_bw(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_c_bw : 0.0f;
++}
++
++float mcpwm_foc_get_p_c_wl(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_c_wl : 0.0f;
++}
++
++float mcpwm_foc_get_p_wheel_radius(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_wheel_radius : 0.0f;
++}
++
++float mcpwm_foc_get_p_mech_gearing(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_mech_gearing : 0.0f;
++}
++
++float mcpwm_foc_get_p_r_bearings(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_r_bearings : 0.0f;
++}
++
++float mcpwm_foc_get_p_k_v_bw(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_k_v_bw : 0.0f;
++}
++
++float mcpwm_foc_get_p_J(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_J : 0.0f;
++}
++
++float mcpwm_foc_get_p_B(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_B : 0.0f;
++}
++
++float mcpwm_foc_get_p_k_area(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_k_area : 0.0f;
++}
++
++float mcpwm_foc_get_p_height(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_height : 0.0f;
++}
++
++float mcpwm_foc_get_p_speed_limit_pos_control_activation(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_speed_limit_pos_control_activation : 0.0f;
++}
++
++float mcpwm_foc_get_p_fo_hz(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_fo_hz : 0.0f;
++}
++
++float mcpwm_foc_get_p_gz_hz(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_gz_hz : 0.0f;
++}
++
++float mcpwm_foc_get_p_fc_TLPF(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_fc_TLPF : 0.0f;
++}
++
++float mcpwm_foc_get_p_adrc_scale(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_adrc_scale : 0.0f;
++}
++
++float mcpwm_foc_get_t_ff(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->Te_set : 0.0f;
++}
++
++float mcpwm_foc_get_p_Tc(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_Tc : 0.0f;
++}
++
++float mcpwm_foc_get_p_Tc_ws(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_Tc_ws : 0.0f;
++}
++
++float mcpwm_foc_get_p_kp_pos(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->m_conf->p_pid_kp : 0.0f;
++}
++
++float mcpwm_foc_get_p_ki_pos(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->m_conf->p_pid_ki : 0.0f;
++}
++
++float mcpwm_foc_get_p_kd_pos(void) {
++	volatile motor_all_state_t *motor = get_motor_now();
++	return motor ? motor->p_kd_pos : 0.0f;
++}
+@@ -4506,0 +5211 @@ static THD_FUNCTION(pid_thread, arg) {
++		foc_run_pid_bike_simulation(index_found, dt, (motor_all_state_t*)&m_motor_1);
+@@ -4657,0 +5363,2 @@ static void control_current(motor_all_state_t *motor, float dt) {
++	state_m->vq += motor->c_v_q_ff;// feed forward from speed controller
++
+diff --git a/motor/mcpwm_foc.h b/motor/mcpwm_foc.h
+index 5f8ba8c1..94016765 100644
+--- a/motor/mcpwm_foc.h
++++ b/motor/mcpwm_foc.h
+@@ -155,0 +156,102 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags);
++// Additional functions for debugging
++float mcpwm_foc_get_speed(void);
++float mcpwm_foc_get_f_air(void);
++float mcpwm_foc_get_f_combine(void);
++float mcpwm_foc_get_tf(void);
++float mcpwm_foc_get_i_res(void);
++float mcpwm_foc_t_f_combine(void);
++float mcpwm_get_incline_deg_ist(void);
++
++float mcpwm_foc_get_last_adc_isr_duration(void);
++
++void mcpwm_foc_set_gear_ratio(float gear_ratio);
++float mcpwm_foc_get_f_bearings(void);
++float mcpwm_foc_get_f_roll(void);
++float mcpwm_foc_get_model_speed(void);
++float mcpwm_foc_get_erpm_soll(void);
++float mcpwm_foc_get_uw_theta(void);
++float mcpwm_foc_get_leso_omega(void);
++float mcpwm_foc_get_tp_observed(void);
++float mcpwm_foc_get_uw_angle_sp(void);
++float mcpwm_foc_get_pos_term_speed(void);
++float mcpwm_foc_get_speed_error(void);
++uint32_t mcpwm_foc_get_status_bits(void);
++float mcpwm_foc_get_t_e(void);
++
++void mcpwm_foc_set_bike_runtime(float gear_ratio_bike,
++								float incline_deg,
++								bool pumptrack_enabled,
++								bool freewheel_enabled,
++								float pumptrack_period_min);
++
++void mcpwm_foc_set_bike_sim_params(float p_air_ro,
++								   float p_c_rr,
++								   float p_weight,
++								   float p_As,
++								   float p_c_air,
++								   float p_c_bw,
++								   float p_c_wl,
++								   float p_wheel_radius,
++								   float p_mech_gearing,
++								   float p_r_bearings,
++								   float p_k_v_bw,
++								   float p_J,
++								   float p_B,
++								   float p_k_area,
++								   float p_height,
++								   float p_speed_limit_pos_control_activation);
++
++void mcpwm_foc_set_control_params(float p_fo_hz,
++								  float p_gz_hz,
++								  float p_fc_TLPF,
++								  float p_adrc_scale,
++								  float p_sched_spd_floor,
++								  float p_sched_pos_floor,
++								  float p_sched_pos_dead_erpm,
++								  float p_sched_spd_sat_erpm,
++								  float p_sched_pos_sat_erpm);
++
++float mcpwm_foc_get_p_sched_spd_floor(void);
++float mcpwm_foc_get_p_sched_pos_floor(void);
++float mcpwm_foc_get_p_sched_pos_dead_erpm(void);
++float mcpwm_foc_get_p_sched_spd_sat_erpm(void);
++float mcpwm_foc_get_p_sched_pos_sat_erpm(void);
++
++float mcpwm_foc_get_gear_ratio_bike(void);
++float mcpwm_foc_get_p_incline_deg(void);
++bool  mcpwm_foc_get_pumptrack_enabled(void);
++bool  mcpwm_foc_get_freewheel_enabled(void);
++float mcpwm_foc_get_pumptrack_period_min(void);
++
++float mcpwm_foc_get_p_air_ro(void);
++float mcpwm_foc_get_p_c_rr(void);
++float mcpwm_foc_get_p_weight(void);
++float mcpwm_foc_get_p_As(void);
++float mcpwm_foc_get_p_c_air(void);
++float mcpwm_foc_get_p_c_bw(void);
++float mcpwm_foc_get_p_c_wl(void);
++float mcpwm_foc_get_p_wheel_radius(void);
++float mcpwm_foc_get_p_mech_gearing(void);
++float mcpwm_foc_get_p_r_bearings(void);
++float mcpwm_foc_get_p_k_v_bw(void);
++float mcpwm_foc_get_p_kT(void);
++float mcpwm_foc_get_p_J(void);
++float mcpwm_foc_get_p_B(void);
++float mcpwm_foc_get_p_k_area(void);
++float mcpwm_foc_get_p_height(void);
++float mcpwm_foc_get_p_speed_limit_pos_control_activation(void);
++
++float mcpwm_foc_get_p_fo_hz(void);
++float mcpwm_foc_get_p_gz_hz(void);
++float mcpwm_foc_get_p_fc_TLPF(void);
++float mcpwm_foc_get_p_adrc_scale(void);
++float mcpwm_foc_get_p_Tc(void);
++float mcpwm_foc_get_p_Tc_ws(void);
++float mcpwm_foc_get_p_kp_pos(void);
++float mcpwm_foc_get_p_ki_pos(void);
++float mcpwm_foc_get_p_kd_pos(void);
++float mcpwm_foc_get_t_ff(void);
++
++float mcpwm_foc_get_gear_ratio(void);
++void motor_update_cached_params(volatile motor_all_state_t *m);
++

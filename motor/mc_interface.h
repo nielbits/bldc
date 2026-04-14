@@ -128,7 +128,7 @@ float mc_interface_stat_temp_motor_avg(void);
 float mc_interface_stat_temp_motor_max(void);
 float mc_interface_stat_count_time(void);
 void mc_interface_stat_reset(void);
-
+void mc_interface_start_bike_sim(void);
 // MC implementation functions
 void mc_interface_set_fault_info(const char *str, int argn, float arg0, float arg1);
 void mc_interface_fault_stop(mc_fault_code fault, bool is_second_motor, bool is_isr);

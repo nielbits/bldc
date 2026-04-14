@@ -185,7 +185,8 @@ typedef enum {
 	CONTROL_MODE_OPENLOOP_PHASE,
 	CONTROL_MODE_OPENLOOP_DUTY,
 	CONTROL_MODE_OPENLOOP_DUTY_PHASE,
-	CONTROL_MODE_NONE
+	CONTROL_MODE_NONE,
+	CONTROL_MODE_BIKE_SIMULATION,
 } mc_control_mode;
 
 typedef enum {
@@ -1123,13 +1124,24 @@ typedef enum {
 	//COMM_PINLOCK2							= 154,
 	//COMM_PINLOCK3							= 155,
 
-	COMM_SHUTDOWN							= 156,
-	
+	COMM_SHUTDOWN                          = 156,
+
 	COMM_FW_INFO							= 157,
 
 	COMM_CAN_UPDATE_BAUD_ALL				= 158,
 
 	COMM_MOTOR_ESTOP						= 159,
+
+	COMM_SET_BIKE_SIM_PARAMS               = 160,
+	COMM_GET_BIKE_SIM_PARAMS               = 161,
+	COMM_SET_CONTROL_PARAMS                = 162,
+	COMM_GET_CONTROL_PARAMS                = 163,
+	COMM_GET_VALUES_EXP                    = 164,
+
+	COMM_SET_BIKE_RUNTIME                  = 165,
+	COMM_GET_BIKE_RUNTIME                  = 166,
+	COMM_START_BIKE_SIM = 167,
+
 } COMM_PACKET_ID;
 
 // CAN commands

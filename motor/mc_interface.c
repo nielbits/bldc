@@ -628,7 +628,26 @@ void mc_interface_set_pid_speed(float rpm) {
 
 	events_add("set_pid_speed", rpm);
 }
+void mc_interface_start_bike_sim(void) {
+	SHUTDOWN_RESET();
 
+	if (mc_interface_try_input()) {
+		return;
+	}
+
+	switch (motor_now()->m_conf.motor_type) {
+	case MOTOR_TYPE_FOC:
+		mcpwm_foc_start_bike_sim();
+		break;
+
+	case MOTOR_TYPE_BLDC:
+	case MOTOR_TYPE_DC:
+	default:
+		break;
+	}
+
+	events_add("start_bike_sim", 0.0);
+}
 void mc_interface_set_pid_pos(float pos) {
 	SHUTDOWN_RESET();
 

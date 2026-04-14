@@ -569,6 +569,400 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 	motor->m_iq_set = output * conf_now->lo_current_max * conf_now->l_current_max_scale;
 }
 
+void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t *motor) {
+    mc_configuration *conf_now = motor->m_conf;
+    float p_term;
+    float d_term;
+    float p_term_pos;
+    float pos_error;
+
+    index_found = encoder_index_found();
+
+    float pos_kp = conf_now->p_pid_kp;
+    float pos_ki = conf_now->p_pid_ki;
+
+    bool ctrl_enabled = false;
+
+    if (motor->m_control_mode != CONTROL_MODE_BIKE_SIMULATION) {
+        motor->m_speed_i_term = 0.0f;
+        motor->m_speed_prev_error = 0.0f;
+        motor->m_speed_d_filter = 0.0f;
+        motor->model_pos_prev_error = 0.0f;
+        motor->model_pos_d_filter = 0.0f;
+        motor->model_pos_i_term = 0.0f;
+        motor->Text_ext_hat_f = 0.0f;
+        motor->ctrl_sm_state = CTRL_SM_START;
+        motor->status_bits |= false << STATUS_BIT_SPEED_CONTROL_ACTIVE;
+        motor->status_bits |= (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
+        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_START) << STATUS_BIT_CTRL_SM_START;
+        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_INDEX_FOUND) << STATUS_BIT_CTRL_SM_INDEX_FOUND;
+        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_ENABLE) << STATUS_BIT_CTRL_SM_ENABLE;
+        return;
+    }
+
+    const float radps_to_rpm       = motor->c_radps_to_rpm;
+    const float mech_radps_to_erpm = motor->c_mech_radps_to_erpm;
+    const float erpm_to_mech_radps = motor->c_erpm_to_mech_radps;
+    const float inv_pole_pairs     = motor->c_inv_pole_pairs;
+
+    float rpm = 0.0f;
+    float t_rpm = 0.0f;
+
+    const float clamp = 30000.0f;
+
+    switch (conf_now->s_pid_speed_source) {
+    case S_PID_SPEED_SRC_PLL:
+        t_rpm = motor->m_pll_speed * radps_to_rpm;
+        break;
+    case S_PID_SPEED_SRC_FAST:
+        t_rpm = motor->m_speed_est_fast * radps_to_rpm;
+        break;
+    case S_PID_SPEED_SRC_FASTER:
+        t_rpm = motor->m_speed_est_faster * radps_to_rpm;
+        break;
+    }
+
+    if (fabsf(t_rpm) > clamp) {
+        rpm = motor->last_rpm;
+    } else {
+        rpm = t_rpm;
+    }
+
+    motor->last_rpm = rpm;
+    ctrl_sm_state_t prev = motor->ctrl_sm_state;
+
+    {
+        const float rpm_deadband = 5.0f;
+        const uint32_t still_req_cycles = 5000;
+        const float abs_rpm = fabsf(motor->m_pll_speed * radps_to_rpm);
+
+        switch (motor->ctrl_sm_state) {
+        default:
+        case CTRL_SM_START:
+            motor->ctrl_sm_still_cycles = 0;
+            if (index_found) {
+                motor->ctrl_sm_state = CTRL_SM_INDEX_FOUND;
+                motor->unwrapped_theta = 0.0f;
+            }
+            break;
+
+        case CTRL_SM_INDEX_FOUND:
+            if (!index_found) {
+                motor->ctrl_sm_state = CTRL_SM_START;
+                motor->ctrl_sm_still_cycles = 0;
+                break;
+            }
+
+            if (abs_rpm <= rpm_deadband) {
+                if (motor->ctrl_sm_still_cycles < still_req_cycles) {
+                    motor->ctrl_sm_still_cycles++;
+                }
+                if (motor->ctrl_sm_still_cycles >= still_req_cycles) {
+                    motor->ctrl_sm_state = CTRL_SM_ENABLE;
+                }
+            } else {
+                motor->ctrl_sm_still_cycles = 0;
+            }
+            break;
+
+        case CTRL_SM_ENABLE:
+            if (!index_found) {
+                motor->ctrl_sm_state = CTRL_SM_START;
+                motor->ctrl_sm_still_cycles = 0;
+            }
+            break;
+        }
+
+        ctrl_enabled = (motor->ctrl_sm_state == CTRL_SM_ENABLE);
+
+        bool entered_enable = (prev != CTRL_SM_ENABLE) && (motor->ctrl_sm_state == CTRL_SM_ENABLE);
+
+        if (entered_enable) {
+            motor->model_v = 0.0f;
+            motor->model_accel_prev = 0.0f;
+
+            motor->model_pos_set_model = motor->unwrapped_theta_filtered;
+
+            motor->model_pos_i_term = 0.0f;
+            motor->m_speed_i_term = 0.0f;
+            motor->m_speed_prev_error = 0.0f;
+            motor->m_speed_d_filter = 0.0f;
+        }
+    }
+
+    const float erpm_abs_meas = 0.5f * (fabsf(rpm) + fabsf(motor->d_erpm_soll));
+
+    const float spd_floor    = motor->p_sched_spd_floor;
+    const float pos_floor    = motor->p_sched_pos_floor;
+    const float pos_dead     = motor->p_sched_pos_dead_erpm;
+    const float spd_sat_erpm = motor->p_sched_spd_sat_erpm;
+    const float pos_sat_erpm = motor->p_sched_pos_sat_erpm;
+
+    const float m_spd = ramp_rational_p2(erpm_abs_meas, spd_sat_erpm);
+    const float g_spd = map_floor_local(m_spd, spd_floor);
+
+    float x_pos = erpm_abs_meas - pos_dead;
+    if (x_pos < 0.0f) {
+        x_pos = 0.0f;
+    }
+
+    const float m_pos = ramp_rational_p2(x_pos, pos_sat_erpm);
+    const float g_pos = map_floor_local(m_pos, pos_floor);
+
+    const float pos_kp_eff = pos_kp * g_pos * 100.0f;
+    const float pos_ki_eff = pos_ki * g_pos * 100.0f;
+
+    const float sp_kp_eff  = conf_now->s_pid_kp * g_spd;
+    const float sp_ki_eff  = conf_now->s_pid_ki * g_spd;
+
+    if (erpm_abs_meas < 2.0f) {
+        motor->m_speed_i_term = 0.0f;
+    }
+
+    float angle_deg_now = encoder_read_deg();
+    float angle_rad_now = angle_deg_now * ((float)M_PI / 180.0f);
+
+    float delta_rad = utils_angle_difference_rad(angle_rad_now, motor->kalman_last_angle_rad);
+    motor->kalman_last_angle_rad = angle_rad_now;
+
+    motor->unwrapped_theta += delta_rad;
+    motor->kalman_last_delta_rad = delta_rad;
+
+    UTILS_LP_FAST(motor->p_gear_ratio_filtered, motor->gear_ratio_bike, 0.001f);
+    float gear_ratio = motor->p_gear_ratio_filtered;
+    float gearing = (float)(motor->p_mech_gearing / gear_ratio);
+    UTILS_LP_FAST(motor->p_incline_filtered, motor->p_incline_deg, 0.01f);
+
+    float incline_base_deg = motor->p_incline_filtered;
+    float incline_deg_cmd = incline_base_deg;
+
+    if (motor->pumptrack_enabled) {
+        float T_sec = motor->pumptrack_period_min * 60.0f;
+        if (T_sec < 1e-4f) T_sec = 1e-4f;
+
+        motor->pumptrack_time += dt;
+        if (motor->pumptrack_time >= T_sec) {
+            motor->pumptrack_time -= T_sec * floorf(motor->pumptrack_time / T_sec);
+        }
+
+        float phase = 2.0f * (float)M_PI * motor->pumptrack_time / T_sec - 0.5f * (float)M_PI;
+        incline_deg_cmd = 0.5f * incline_base_deg * (1.0f + sinf(phase));
+    } else {
+        incline_deg_cmd = incline_base_deg;
+        motor->pumptrack_time = 0.0f;
+    }
+
+    float speed_dir_ref = SIGN(motor->d_erpm_soll);
+    float slope = incline_deg_cmd * ((float)M_PI / 180.0f) * speed_dir_ref;
+    motor->incline_result = incline_deg_cmd;
+
+    const float motor_mech_radps = rpm * erpm_to_mech_radps;
+    float speed = motor_mech_radps * motor->p_wheel_radius / gearing;
+
+    float speed_ratio = fabsf(motor->d_erpm_soll) / motor->p_speed_limit_pos_control_activation;
+    float smooth_factor = speed_ratio;
+    if (smooth_factor > 1.0f) smooth_factor = 1.0f;
+
+    float F_air = 0.5f * motor->p_air_ro * motor->p_c_air * motor->c_area_s * speed * fabsf(speed);
+    float F_roll = smooth_factor * (motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope));
+    float F_incline = smooth_factor * motor->p_weight * 9.81f * sinf(slope);
+    float F_bearings = smooth_factor * (motor->p_c_bw * motor->p_k_v_bw) * speed;
+
+    float F_combine = (F_air + F_roll + F_incline + F_bearings);
+    motor->d_f_combine = F_combine;
+
+    motor->te_calculated =
+        motor->m_motor_state.iq * motor->p_kT +
+        (motor->m_motor_state.iq * motor->m_motor_state.id) * (motor->p_ld - motor->p_lq);
+
+    motor->unwrapped_theta_filtered_prev = motor->unwrapped_theta_filtered;
+    UTILS_LP_FAST(motor->unwrapped_theta_filtered, motor->unwrapped_theta, 0.15f);
+
+    const float omega_for_leso = motor_mech_radps;
+    leso3_step(motor, dt, motor->te_calculated, motor->unwrapped_theta_filtered, omega_for_leso);
+
+    const float FW_SLIP_REENG      = 20.0f;
+    const float FW_T_REENG         = 2.0f;
+    const float FW_T_DISENG        = 0.0f;
+    const float FW_T_DISENG_FORCED = -20.0f;
+
+    const float erpm_ratio_freewheel_disengage = 0.90f;
+    const float erpm_ratio_forced_disengage    = 0.70f;
+
+    float wheel_erpm = motor->d_erpm_soll;
+    float speed_dir = SIGN(wheel_erpm);
+
+    float motor_erpm = motor->m_pll_speed * radps_to_rpm;
+    float slip_rpm = (motor_erpm - wheel_erpm) * inv_pole_pairs;
+
+    float Tproj = speed_dir * motor->tp_observed;
+
+    if (!(motor->forced_freewheel || motor->freewheel_active) &&
+        (fabsf(motor_erpm) <= fabsf(wheel_erpm) * erpm_ratio_forced_disengage) &&
+        (motor->ctrl_sm_state == CTRL_SM_ENABLE) &&
+        (Tproj < FW_T_DISENG_FORCED)) {
+        motor->forced_freewheel = true;
+    }
+
+    if (motor->freewheel_enabled || motor->forced_freewheel) {
+        if (!motor->freewheel_active) {
+            if ((Tproj <= FW_T_DISENG) ||
+                (fabsf(motor_erpm) <= fabsf(wheel_erpm) * erpm_ratio_freewheel_disengage)) {
+                motor->freewheel_active = true;
+            }
+        } else {
+            if ((Tproj > FW_T_REENG) &&
+                (fabsf(slip_rpm) < FW_SLIP_REENG)) {
+                motor->freewheel_active = false;
+                motor->forced_freewheel = false;
+                motor->model_pos_i_term = 0.0f;
+                motor->model_pos_set_model = motor->unwrapped_theta_filtered;
+            }
+        }
+    } else {
+        motor->freewheel_active = false;
+        motor->forced_freewheel = false;
+    }
+
+    const bool fw = (motor->freewheel_active || motor->forced_freewheel);
+
+    const float F_drive = (motor->tp_observed * motor->c_wheel_radius_inv) * gearing;
+
+    float accel_now;
+    if (fw) {
+        accel_now = (-F_combine) / motor->p_weight;
+    } else {
+        accel_now = (F_drive - F_combine) / motor->p_weight;
+    }
+
+    motor->accel_ist = accel_now;
+
+    motor->model_v += 0.5f * (accel_now + motor->model_accel_prev) * dt;
+    motor->model_accel_prev = accel_now;
+
+    const float omega_mech = motor->model_v * gearing * motor->c_wheel_radius_inv;
+
+    motor->model_pos_set_model += omega_mech * dt;
+    motor->d_erpm_soll = omega_mech * mech_radps_to_erpm;
+
+    pos_error = motor->model_pos_set_model - motor->unwrapped_theta_filtered;
+
+    p_term_pos = pos_error * pos_kp_eff;
+
+    const float pos_corr_erpm_max = 20000.0f;
+
+    float pos_i = motor->model_pos_i_term;
+    float pos_corr_raw = p_term_pos + pos_i;
+    float pos_corr_sat = pos_corr_raw;
+
+    utils_truncate_number_abs(&pos_corr_sat, pos_corr_erpm_max);
+
+    const float Tt = 0.10f;
+    const float kaw = (Tt > 1e-6f) ? (1.0f / Tt) : 0.0f;
+
+    pos_i += dt * (pos_ki_eff * pos_error + kaw * (pos_corr_sat - pos_corr_raw));
+
+    motor->model_pos_i_term = pos_i;
+
+    pos_corr_raw = p_term_pos + motor->model_pos_i_term;
+    pos_corr_sat = pos_corr_raw;
+    utils_truncate_number_abs(&pos_corr_sat, pos_corr_erpm_max);
+    motor->speed_out_pos_controller = pos_corr_sat;
+
+    float base_speed_ref_erpm = omega_mech * mech_radps_to_erpm;
+    float speed_ref_erpm = base_speed_ref_erpm + pos_corr_sat;
+    utils_truncate_number(&speed_ref_erpm, conf_now->l_min_erpm, conf_now->l_max_erpm);
+
+    float error = speed_ref_erpm - rpm;
+    motor->speed_error = error;
+
+    p_term = error * sp_kp_eff * (1.0f / 20.0f);
+
+    d_term = (error - motor->m_speed_prev_error) * (conf_now->s_pid_kd / dt) * (1.0f / 20.0f);
+    UTILS_LP_FAST(motor->m_speed_d_filter, d_term, conf_now->s_pid_kd_filter);
+    d_term = motor->m_speed_d_filter;
+
+    motor->m_speed_prev_error = error;
+
+    motor->T_f_combine = F_combine * motor->p_wheel_radius / gearing;
+
+    float speed_ratio2 = erpm_abs_meas / 100.0f;
+    float smooth_factor2 = speed_ratio2;
+    if (smooth_factor2 > 1.0f) smooth_factor2 = 1.0f;
+
+    float Te_ff = (-motor->Text_ext_hat_f) * smooth_factor2 * motor->p_adrc_scale;
+
+    motor->Te_set = Te_ff;
+    motor->iq_set_ff = Te_ff / motor->p_kT;
+
+    float iq_ff = motor->iq_set_ff;
+    utils_truncate_number_abs(&iq_ff, conf_now->l_current_max);
+
+    float iq_ff_norm = iq_ff * motor->c_iq_norm_inv;
+
+    motor->c_v_q_ff = iq_ff * motor->m_res_est;
+
+    float i_inc = error * sp_ki_eff * dt * (1.0f / 20.0f);
+    bool wants_accel = (i_inc > 0.0f);
+
+    if (sp_ki_eff < 1e-9f) {
+        motor->m_speed_i_term = 0.0f;
+    } else {
+        if ((motor->freewheel_active || motor->forced_freewheel) && wants_accel) {
+            motor->m_speed_i_term *= 0.98f;
+        } else {
+            motor->m_speed_i_term += i_inc;
+        }
+        utils_truncate_number_abs(&motor->m_speed_i_term, 1.0f);
+    }
+
+    motor->d_speed_soll = motor->model_v;
+
+    float output = p_term + motor->m_speed_i_term + d_term + iq_ff_norm;
+    utils_truncate_number_abs(&output, 1.0f);
+
+    if (!conf_now->s_pid_allow_braking) {
+        if (rpm > 20.0f && output < 0.0f) output = 0.0f;
+        if (rpm < -20.0f && output > 0.0f) output = 0.0f;
+    }
+
+    if (fw) {
+        motor->model_pos_i_term = 0.0f;
+        motor->m_speed_i_term   = 0.0f;
+        motor->m_speed_prev_error = 0.0f;
+        motor->m_speed_d_filter = 0.0f;
+        output = 0.0f;
+        motor->c_v_q_ff = 0.0f;
+    }
+
+    if (!ctrl_enabled) {
+        motor->m_speed_i_term = 0.0f;
+        motor->m_speed_prev_error = 0.0f;
+        motor->m_speed_d_filter = 0.0f;
+        motor->model_pos_i_term = 0.0f;
+
+        output = 0.0f;
+        motor->c_v_q_ff = 0.0f;
+        motor->iq_set_ff = 0.0f;
+        motor->Te_set = 0.0f;
+    }
+
+    motor->d_i_res = -iq_ff;
+
+    motor->m_iq_set = output * (conf_now->lo_current_max * conf_now->l_current_max_scale);
+
+    motor->status_bits = 0;
+    motor->status_bits |= true << STATUS_BIT_SPEED_CONTROL_ACTIVE;
+    motor->status_bits |= (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
+    motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_START) << STATUS_BIT_CTRL_SM_START;
+    motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_INDEX_FOUND) << STATUS_BIT_CTRL_SM_INDEX_FOUND;
+    motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_ENABLE) << STATUS_BIT_CTRL_SM_ENABLE;
+    motor->status_bits |= ((uint32_t)1U) << 5;
+    motor->status_bits |= ((uint32_t)1U) << 6;
+    motor->status_bits |= ((uint32_t)1U) << 7;
+    motor->status_bits |= ((uint32_t)1U) << 16;
+    motor->status_bits |= ((uint32_t)1U) << 31;
+}
 float foc_correct_encoder(float obs_angle, float enc_angle, float speed,
 							 float sl_erpm, motor_all_state_t *motor) {
 	float rpm_abs = fabsf(RADPS2RPM_f(speed));
@@ -764,14 +1158,308 @@ void foc_precalc_values(motor_all_state_t *motor) {
 	motor->m_observer_state.lambda_est = conf_now->foc_motor_flux_linkage;
 	motor->p_duty_norm = TWO_BY_SQRT3 / conf_now->foc_overmod_factor;
 
-#ifdef HW_HAS_PHASE_SHUNTS
+	#ifdef HW_HAS_PHASE_SHUNTS
 	if (conf_now->foc_control_sample_mode == FOC_CONTROL_SAMPLE_MODE_V0_V7) {
 		motor->p_fs = conf_now->foc_f_zv;
 	} else {
 		motor->p_fs = conf_now->foc_f_zv * 0.5;
 	}
-#else
-	motor->p_fs = conf_now->foc_f_zv * 0.5;
-#endif
-	motor->p_dt = 1.0 / motor->p_fs;
+	#else
+		motor->p_fs = conf_now->foc_f_zv * 0.5;
+	#endif
+		motor->p_dt = 1.0 / motor->p_fs;
 }
+
+void leso3_step(
+    motor_all_state_t *m,
+    float dt,
+    float Te_meas,
+    float theta_meas,
+    float omega_meas
+){
+    if (!m || dt <= 0.0f) return;
+    if (!(m->p_J > 0.0f)) return;
+
+    const float B   = m->p_B;
+    const float b0  = m->c_b0;
+    const float b1  = m->c_b1;
+    const float b2  = m->c_b2;
+    const float b3  = m->c_b3;
+    const float gz  = m->c_gz;
+
+    // ---------- Linear friction only ----------
+    m->Tf_hat = B * omega_meas;
+    const float Te_eff = Te_meas;
+    // -----------------------------------------
+
+    const float h = 0.5f * dt;
+
+    // Old states
+    const float thk = m->leso_th;
+    const float omk = m->leso_om;
+    const float zk  = m->leso_z;
+
+    // Linear innovation
+    const float ek = theta_meas - thk;
+
+    // --- Linear system coefficients ---
+    const float a11 = 1.0f + h * b1;
+    const float a12 = -h;
+
+    const float a21 =  h * b2;
+    const float a22 = 1.0f + h * (b0 * B);
+    const float a23 = -h;
+
+    const float a31 =  h * b3;
+    const float a33 = 1.0f + h * gz;
+
+    const float rhs1 = thk + h * (omk + b1 * ek) + h * (b1 * theta_meas);
+
+    const float fk_om = b0 * (Te_eff - B * omk) + zk + b2 * ek;
+    const float rhs2  = omk + h * fk_om + h * (b0 * Te_eff + b2 * theta_meas);
+
+    const float fk_z  = b3 * ek - gz * zk;
+    const float rhs3  = zk + h * fk_z + h * (b3 * theta_meas);
+
+    // Solve sparse system
+    const float inv_a11 = 1.0f / a11;
+    const float inv_a33 = 1.0f / a33;
+
+    const float th_const = rhs1 * inv_a11;
+    const float th_om    = (-a12) * inv_a11;
+
+    const float z_const  = (rhs3 - a31 * th_const) * inv_a33;
+    const float z_om     = (-(a31 * th_om)) * inv_a33;
+
+    const float const2 = a21 * th_const + a23 * z_const;
+    const float coeff2 = a21 * th_om + a22 + a23 * z_om;
+
+    float om1 = omk;
+    if (fabsf(coeff2) > 1e-6f) {
+        om1 = (rhs2 - const2) / coeff2;
+    }
+
+    float th1 = th_const + th_om * om1;
+    float z1  = z_const  + z_om  * om1;
+
+    // ====================== CLAMPS (post-solve) ======================
+
+    // Torque-based z bound
+    const float z_abs_max = m->c_z_abs_max;
+    if (z1 >  z_abs_max){
+            z1 =  z_abs_max;
+        //    if (z1 > 4.0f* z_abs_max){
+        //        m->ctrl_sm_state = CTRL_SM_START; 
+        //    }
+           // If the torque estimate gets too positive, we likely have a problem. Restart the controller to be safe.
+    } 
+
+
+    if (z1 < -z_abs_max)
+    { 
+        z1 = -z_abs_max;
+       // if (z1 < -4.0f*z_abs_max){
+       //         m->ctrl_sm_state = CTRL_SM_START; 
+       //     }
+           // If the torque estimate gets too negative, we likely have a problem. Restart the controller to be safe.
+    }
+
+    // --- omega plausibility clamp + slew on LESO omega state ---
+    {
+        const float om_meas = omega_meas;
+        const float omk_loc = omk;
+        const float om_abs_max = m->c_om_abs_max;
+
+        const float om_floor = 5.0f;
+        const float rel_band = 0.20f;
+
+        float dom_allow = om_floor + rel_band * fabsf(om_meas);
+        if (dom_allow > om_abs_max) dom_allow = om_abs_max;
+
+        float om_target = om1;
+        const float om_lo = om_meas - dom_allow;
+        const float om_hi = om_meas + dom_allow;
+        if (om_target < om_lo) om_target = om_lo;
+        if (om_target > om_hi) om_target = om_hi;
+
+        const float w_s    = 20.0f;
+        const float rate0w = 300.0f;
+        const float rate1w = 6000.0f;
+
+        float s = fabsf(om_meas) / w_s;
+        if (s > 1.0f) s = 1.0f;
+        s = s * s * (3.0f - 2.0f * s);
+
+        const float dom_rate = rate0w + (rate1w - rate0w) * s;
+
+        float dom = om_target - omk_loc;
+        const float dom_max = dom_rate * dt;
+        if (dom >  dom_max) dom =  dom_max;
+        if (dom < -dom_max) dom = -dom_max;
+
+        om1 = omk_loc + dom;
+
+        if (om1 >  om_abs_max) om1 =  om_abs_max;
+        if (om1 < -om_abs_max) om1 = -om_abs_max;
+
+        th1 = th_const + th_om * om1;
+    }
+
+    // --- Slew-limit omega used for reconstruction only ---
+    const float w1_recon    = 1000.0f;
+    const float rate0_recon = 50.0f;
+    const float rate1_recon = 2000.0f;
+
+    const float rate_recon = rate_from_abs_omega(fabsf(omega_meas), w1_recon, rate0_recon, rate1_recon);
+    m->leso_omega_in = slew_limit(omega_meas, m->leso_omega_in, rate_recon, dt);
+    const float omega_leso = m->leso_omega_in;
+
+    // ==================== Commit ====================
+    m->leso_th = th1;
+    m->leso_om = om1;
+    m->leso_z  = z1;
+
+    const float Tpedal_ext_hat = m->p_J * z1;
+    m->tp_observed = Tpedal_ext_hat;
+
+    const float Text_ext_hat = Tpedal_ext_hat - B * omega_leso;
+
+    const float aT = expf(-m->c_fc_2pi * dt);
+    m->Text_ext_hat_f = aT * m->Text_ext_hat_f + (1.0f - aT) * Text_ext_hat;
+}
+
+
+// =========================
+// Auxiliary / helper functions
+// =========================
+
+float sgn_db(float x, float dead) {
+    if (x >  dead) return  1.0f;
+    if (x < -dead) return -1.0f;
+    return 0.0f;
+}
+
+float smooth_force(float mag, float v, float v_eps) {
+    return mag * (v / v_eps); // smoothly goes negative if v<0
+}
+
+float fal_gain(float e, float alpha, float delta, float g0) {
+    float ae = fabsf(e);
+    if (ae <= delta) {
+        return g0 * e;
+    } else {
+        float scale = g0 * powf(delta, 1.0f - alpha);
+        return copysignf(scale * powf(ae, alpha), e);
+    }
+}
+
+float falf(float e, float alpha, float delta) {
+    float ae = fabsf(e);
+    if (ae <= delta) {
+        return e / powf(delta, 1.0f - alpha);
+    } else {
+        return copysignf(powf(ae, alpha), e);
+    }
+}
+float ramp_rational_ref(float x, float x_ref, float p) {
+    const float target = 0.999f;
+
+    if (!(x > 0.0f)) return 0.0f;
+    if (!(x_ref > 1e-6f)) return 1.0f;
+    if (!(p > 1e-3f)) p = 1.0f;
+
+    const float ratio = target / (1.0f - target);
+    const float x0    = x_ref / powf(ratio, 1.0f / p);
+
+    float r = powf(x / x0, p);
+    float m = r / (1.0f + r);
+
+    if (m < 0.0f) m = 0.0f;
+    if (m > 1.0f) m = 1.0f;
+    return m;
+}
+
+float map_floor(float m, float floor) {
+    if (floor < 0.0f) floor = 0.0f;
+    if (floor > 1.0f) floor = 1.0f;
+    return floor + (1.0f - floor) * m;
+}
+
+float ramp_rational_x0(float x, float x0, float p) {
+    if (!(x > 0.0f)) return 0.0f;
+    if (!(x0 > 1e-6f)) return 1.0f;
+    if (!(p > 1e-3f)) p = 1.0f;
+
+    float r = powf(x / x0, p);
+    float m = r / (1.0f + r);
+
+    if (m < 0.0f) m = 0.0f;
+    if (m > 1.0f) m = 1.0f;
+    return m;
+}
+
+float fal_nleso_erpm(float e_th_rad,
+                            float alpha,
+                            float delta_erpm,
+                            float dt,
+                            float pole_pairs)
+{
+    const float k_erpm = (60.0f / (2.0f * (float)M_PI)) * pole_pairs;
+
+    if (!(dt > 0.0f) || !(k_erpm > 0.0f)) {
+        return e_th_rad;
+    }
+
+    const float e_erpm = (e_th_rad / dt) * k_erpm;
+
+    const float ae = fabsf(e_erpm);
+    if (ae <= delta_erpm) {
+        return e_th_rad;
+    } else {
+        const float scale = powf(delta_erpm, 1.0f - alpha);
+        const float e_erpm_nl = copysignf(scale * powf(ae, alpha), e_erpm);
+        return (e_erpm_nl / k_erpm) * dt;
+    }
+}
+
+float rate_from_abs_omega(float om_abs, float w1,
+                                 float rate0, float rate1) {
+    if (!(w1 > 1e-6f)) return rate1;
+    float t = clampf(om_abs / w1, 0.0f, 1.0f);
+    return rate0 + (rate1 - rate0) * t;
+}
+
+float slew_limit(float x, float x_prev, float rate, float dt) {
+    const float dx_max = rate * dt;
+    return x_prev + clampf(x - x_prev, -dx_max, dx_max);
+}
+
+float clampf(float x, float lo, float hi) {
+    return (x < lo) ? lo : (x > hi) ? hi : x;
+}
+
+float map_floor_local(float m, float floor) {
+    utils_truncate_number(&floor, 0.0f, 1.0f);
+
+    if (m < 0.0f) m = 0.0f;
+    if (m > 1.0f) m = 1.0f;
+
+    return floor + (1.0f - floor) * m;
+}
+
+float ramp_rational_p2(float x, float x_sat) {
+    if (x <= 0.0f) {
+        return 0.0f;
+    }
+
+    if (x_sat < 1e-6f) {
+        return 1.0f;
+    }
+
+    const float x0 = 0.5f * x_sat;
+    const float x2  = x * x;
+    const float x02 = x0 * x0;
+
+    return x2 / (x2 + x02);
+}
+

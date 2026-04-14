@@ -110,6 +110,20 @@ typedef enum {
 	MC_AUDIO_SAMPLED,
 } mc_audio_mode;
 
+typedef enum {
+	STATUS_BIT_SPEED_CONTROL_ACTIVE   = 0,
+	STATUS_BIT_FORCED_FREEWHEEL       = 1,
+	STATUS_BIT_CTRL_SM_START          = 2,
+	STATUS_BIT_CTRL_SM_INDEX_FOUND    = 3,
+	STATUS_BIT_CTRL_SM_ENABLE         = 4
+} status_bits_t;
+
+typedef enum {
+	CTRL_SM_START = 0,
+	CTRL_SM_INDEX_FOUND = 1,
+	CTRL_SM_ENABLE = 2
+} ctrl_sm_state_t;
+
 typedef struct {
 	mc_audio_mode mode;
 
@@ -245,6 +259,174 @@ typedef struct {
 	float p_duty_norm;
 	float p_fs;
 	float p_dt;
+
+	// --- Bike simulator parameters ---
+	float gear_ratio_bike;
+	float p_air_ro;
+	float p_c_rr;
+	float p_weight;
+	float p_As;
+	float p_c_air;
+	float p_c_bw;
+	float p_c_wl;
+	float p_wheel_radius;
+	float p_r_bearings;
+	float p_k_v_bw;
+	float p_k_area;
+	float p_height;
+	float p_fo_hz;
+	float p_gz_hz;
+	float p_fc_TLPF;
+	float p_adrc_scale;
+	float p_speed_limit_pos_control_activation;
+	float p_kp_pos;
+	float p_ki_pos;
+	float p_kd_pos;
+	float p_incline_deg;
+
+	float p_sched_spd_floor;
+	float p_sched_pos_floor;
+	float p_sched_pos_dead_erpm;
+	float p_sched_spd_sat_erpm;
+	float p_sched_pos_sat_erpm;
+
+	float p_J;
+	float p_kT;
+	float p_mech_gearing;
+	float p_B;
+	float p_Tc;
+	float p_Tc_ws;
+
+	// --- Runtime flags / mode handling ---
+	bool pumptrack_enabled;
+	float pumptrack_time;
+	float pumptrack_period_min;
+
+	int ctrl_sm_still_cycles;
+	int ctrl_sm_state;
+
+	bool forced_freewheel;
+	bool freewheel_active;
+	bool freewheel_enabled;
+
+	// --- Parameter live-tuning helpers ---
+	int param_index;
+	float param_value;
+
+	float p_incline_filtered;
+	float p_gear_ratio_filtered;
+	float incline_result;
+
+	// --- Cached constants / precomputed values ---
+	float c_pole_pairs;
+	float c_inv_pole_pairs;
+	float c_radps_to_rpm;
+	float c_rpm_to_radps;
+	float c_mech_radps_to_erpm;
+	float c_erpm_to_mech_radps;
+
+	float c_area_s;
+	float c_wheel_radius_inv;
+	float c_iq_norm_inv;
+
+	float c_b0;
+	float c_b1;
+	float c_b2;
+	float c_b3;
+	float c_gz;
+	float c_fc_2pi;
+
+	float c_om_abs_max;
+	float c_z_abs_max;
+
+	float c_sched_spd_floor;
+	float c_sched_pos_floor;
+	float c_sched_pos_dead_erpm;
+	float c_sched_spd_sat_erpm;
+	float c_sched_pos_sat_erpm;
+
+	// values_for_debugging
+	float d_speed;
+	float d_f_air;
+	float d_f_combine;
+	float d_f_bearings;
+	float d_f_roll;
+	float d_erpm_soll; // desired rpm
+	float d_i_res;
+
+	// feedforward control
+	float c_v_q_ff;
+
+	// runtime / observer / model states
+	float accel_ist;
+	int_fast64_t tp_observed_fp;
+
+	// soll speed (model speed)
+	float d_speed_soll;
+	float d_f_motor;
+
+	// extra LESO / control / model states
+	float leso_z4;              // [rad/s^3]
+	float T_f_combine;
+	float leso_omega_in;
+	float tp_observed;
+	float te_calculated;
+
+	float model_v;
+	float model_accel_prev;
+
+	int32_t status_bits;
+	float Tf_hat;
+
+	float fw_timer_s;
+
+	// position setpoint for cascade control
+	float model_pos_set_model;
+	float model_pos_i_term;
+	float model_pos_prev_error;
+	float model_pos_prev_proc;
+	float model_pos_d_filter;
+	float model_pos_dt_int;
+
+	float last_tp;
+	float last_rpm;
+	float rpm_inc_filter_th;
+
+	float unwrapped_theta;
+	float unwrapped_theta_filtered;
+	float unwrapped_theta_filtered_prev;
+	float last_angle_rad;
+	float last_delta_rad;
+
+	// erpm simulation for frequency response test
+	float simulated_erpm;
+	float erpm_time;
+
+	// LESO states
+	float leso_th;    // theta_hat [rad]
+	float leso_om;    // omega_hat [rad/s]
+	float leso_z;     // disturbance acceleration z_hat [rad/s^2]
+
+	float Tdist_total_hat;
+	float Tdist_total_hat_f;
+
+	// feedforward outputs / logging
+	float Te_set;
+	float iq_set_ff;
+
+	// LESO outputs
+	float Text_ext_hat;
+	float Text_ext_hat_f;
+
+	// angle unwrapping using encoder_read_deg()
+	float kalman_last_angle_rad;
+	float kalman_last_delta_rad;
+
+	float speed_out_pos_controller;
+	float speed_error;
+
+	// cached optional shape parameter
+	float c_sched_shape_p;
 } motor_all_state_t;
 
 // Functions
@@ -261,5 +443,23 @@ float foc_correct_hall(float angle, float dt, motor_all_state_t *motor, int hall
 void foc_run_fw(motor_all_state_t *motor, float dt);
 void foc_hfi_adjust_angle(float ang_err, motor_all_state_t *motor, float dt);
 void foc_precalc_values(motor_all_state_t *motor);
+
+void leso3_step(
+	motor_all_state_t *m,
+	float dt,
+	float Te_meas,
+	float theta_meas,
+	float omega
+);
+
+float clampf(float x, float lo, float hi);
+float slew_limit(float x, float x_prev, float rate, float dt);
+float rate_from_abs_omega(float om_abs, float w1, float rate0, float rate1);
+float map_floor(float m, float floor);
+float ramp_rational_x0(float x, float x0, float p);
+float map_floor_local(float m, float floor);
+float ramp_rational_x0_p2(float x, float x0);
+float ramp_rational_p2(float x, float x_sat);
+void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t *motor);
 
 #endif /* FOC_MATH_H_ */
