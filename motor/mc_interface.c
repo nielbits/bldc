@@ -648,6 +648,16 @@ void mc_interface_start_bike_sim(void) {
 
 	events_add("start_bike_sim", 0.0);
 }
+
+void mc_interface_stop_bike_sim(void) {
+	SHUTDOWN_RESET();
+
+	mcpwm_foc_stop_bike_sim();
+
+
+	events_add("stop_bike_sim", 0.0);
+}
+
 void mc_interface_set_pid_pos(float pos) {
 	SHUTDOWN_RESET();
 

@@ -427,6 +427,8 @@ typedef struct {
 
 	// cached optional shape parameter
 	float c_sched_shape_p;
+
+	bool bike_sim_on;
 } motor_all_state_t;
 
 // Functions

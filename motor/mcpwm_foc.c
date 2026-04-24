@@ -461,6 +461,8 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.p_Tc = 2.0f * m_motor_1.p_kT;
 	m_motor_1.p_Tc_ws = 1.0f;
 
+	m_motor_1.bike_sim_on = false;
+
 	// Initialization from encoder
 	{
 		float angle_deg0 = encoder_read_deg();
@@ -886,8 +888,32 @@ void mcpwm_foc_set_pid_speed(float rpm) {
 }
 void mcpwm_foc_start_bike_sim(void) {
 	volatile motor_all_state_t *motor = get_motor_now();
+	mcpwm_foc_set_pid_speed(1000.0f);
+	motor->bike_sim_on=	true;
 
-	motor->m_control_mode = CONTROL_MODE_BIKE_SIMULATION;
+	// Optional reset of bike-sim internal states on entry
+	motor->m_speed_i_term = 0.0f;
+	motor->m_speed_prev_error = 0.0f;
+	motor->m_speed_d_filter = 0.0f;
+
+	motor->model_pos_i_term = 0.0f;
+	motor->model_pos_prev_error = 0.0f;
+	motor->model_pos_d_filter = 0.0f;
+	motor->model_pos_dt_int = 0.0f;
+
+	motor->forced_freewheel = false;
+	motor->freewheel_active = false;
+	motor->ctrl_sm_still_cycles = 0;
+	motor->ctrl_sm_state = CTRL_SM_START;
+
+}
+
+void mcpwm_foc_stop_bike_sim(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	
+	mcpwm_foc_set_current(0.0f);
+	motor->bike_sim_on=	false;
+	motor->m_iq_set = 0.0f;
 
 	// Optional reset of bike-sim internal states on entry
 	motor->m_speed_i_term = 0.0f;
@@ -909,6 +935,7 @@ void mcpwm_foc_start_bike_sim(void) {
 		motor->m_state = MC_STATE_RUNNING;
 	}
 }
+
 /**
  * Use PID position control. Note that this only works when encoder support
  * is enabled.
@@ -5230,9 +5257,14 @@ static THD_FUNCTION(pid_thread, arg) {
 		last_time = timer_time_now();
 
 		bool index_found = encoder_index_found();
-		foc_run_pid_control_pos(index_found, dt, (motor_all_state_t*)&m_motor_1);
-		foc_run_pid_control_speed(index_found, dt, (motor_all_state_t*)&m_motor_1);
-		foc_run_pid_control_bike_sim(index_found, dt, (motor_all_state_t*)&m_motor_1);
+		if (!m_motor_1.bike_sim_on){
+			foc_run_pid_control_pos(index_found, dt, (motor_all_state_t*)&m_motor_1);
+			foc_run_pid_control_speed(index_found, dt, (motor_all_state_t*)&m_motor_1);
+		}
+		else{
+			foc_run_pid_control_bike_sim(index_found, dt, (motor_all_state_t*)&m_motor_1);
+		}
+		
 #ifdef HW_HAS_DUAL_MOTORS
 		foc_run_pid_control_pos(index_found, dt, (motor_all_state_t*)&m_motor_2);
 		foc_run_pid_control_speed(index_found, dt, (motor_all_state_t*)&m_motor_2);

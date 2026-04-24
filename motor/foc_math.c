@@ -583,7 +583,7 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
 
     bool ctrl_enabled = false;
 
-    if (motor->m_control_mode != CONTROL_MODE_BIKE_SIMULATION) {
+    if (!motor->bike_sim_on) {
         motor->m_speed_i_term = 0.0f;
         motor->m_speed_prev_error = 0.0f;
         motor->m_speed_d_filter = 0.0f;
@@ -592,6 +592,7 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
         motor->model_pos_i_term = 0.0f;
         motor->Text_ext_hat_f = 0.0f;
         motor->ctrl_sm_state = CTRL_SM_START;
+		motor->status_bits = 0;
         motor->status_bits |= false << STATUS_BIT_SPEED_CONTROL_ACTIVE;
         motor->status_bits |= (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
         motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_START) << STATUS_BIT_CTRL_SM_START;
@@ -952,7 +953,7 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
     motor->m_iq_set = output * (conf_now->lo_current_max * conf_now->l_current_max_scale);
 
     motor->status_bits = 0;
-    motor->status_bits |= true << STATUS_BIT_SPEED_CONTROL_ACTIVE;
+    motor->status_bits |= (motor->bike_sim_on) << STATUS_BIT_SPEED_CONTROL_ACTIVE;
     motor->status_bits |= (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
     motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_START) << STATUS_BIT_CTRL_SM_START;
     motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_INDEX_FOUND) << STATUS_BIT_CTRL_SM_INDEX_FOUND;
@@ -963,6 +964,7 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
     motor->status_bits |= ((uint32_t)1U) << 16;
     motor->status_bits |= ((uint32_t)1U) << 31;
 }
+
 float foc_correct_encoder(float obs_angle, float enc_angle, float speed,
 							 float sl_erpm, motor_all_state_t *motor) {
 	float rpm_abs = fabsf(RADPS2RPM_f(speed));
