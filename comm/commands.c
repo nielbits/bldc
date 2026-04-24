@@ -416,10 +416,10 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			buffer_append_float16(send_buffer, mc_interface_get_duty_cycle_now(), 1e3, &ind);
 		}
 		if (mask & ((uint32_t)1 << 7)) {
-			buffer_append_float32(send_buffer, mc_interface_get_rpm(), 1e0, &ind);
+			buffer_append_float32(send_buffer,999 , 1e0, &ind); //mc_interface_get_rpm(), 1e0, &ind);
 		}
 		if (mask & ((uint32_t)1 << 8)) {
-			buffer_append_float16(send_buffer, mc_interface_get_input_voltage_filtered(), 1e1, &ind);
+			buffer_append_float16(send_buffer, 11.1, 1e1, &ind);//mc_interface_get_input_voltage_filtered(), 1e1, &ind);
 		}
 		if (mask & ((uint32_t)1 << 9)) {
 			buffer_append_float32(send_buffer, mc_interface_get_amp_hours(false), 1e4, &ind);
@@ -507,6 +507,10 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 	} break;
 	case COMM_START_BIKE_SIM: {
 		mc_interface_start_bike_sim();
+		timeout_reset();
+	} break;
+	case COMM_STOP_BIKE_SIM: {
+		mc_interface_stop_bike_sim();
 		timeout_reset();
 	} break;
 	case COMM_SET_POS: {
@@ -1012,6 +1016,22 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		reply_func(send_buffer, ind);
 	} break;
 
+/*
+case COMM_GET_BIKE_RUNTIME: {
+	int32_t ind = 0;
+	uint8_t send_buffer[32];
+	send_buffer[ind++] = COMM_GET_BIKE_RUNTIME;
+
+	// Fixed known test values
+	buffer_append_float32(send_buffer, 12.345678f, 1e6, &ind); // gear_ratio_bike
+	buffer_append_float32(send_buffer, 4.321f, 1e3, &ind);     // incline_deg
+	send_buffer[ind++] = 1;                                    // pumptrack_enabled
+	send_buffer[ind++] = 0;                                    // freewheel_enabled
+	buffer_append_float32(send_buffer, 7.890f, 1e3, &ind);     // pumptrack_period_min
+
+	reply_func(send_buffer, ind);
+} break;
+*/
 	case COMM_SET_BIKE_SIM_PARAMS: {
 		int32_t ind = 0;
 

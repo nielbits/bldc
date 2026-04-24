@@ -1142,6 +1142,7 @@
 		COMM_SET_BIKE_RUNTIME                  = 165,
 		COMM_GET_BIKE_RUNTIME                  = 166,
 		COMM_START_BIKE_SIM 				   = 167,
+		COMM_STOP_BIKE_SIM 				   	   = 168,
 	} COMM_PACKET_ID;
 
 	// CAN commands
