@@ -18,6 +18,7 @@
  */
 
 #include "foc_math.h"
+#include "encoder/encoder.h"
 #include "utils_math.h"
 #include <math.h>
 
@@ -576,8 +577,6 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
     float p_term_pos;
     float pos_error;
 
-    index_found = encoder_index_found();
-
     float pos_kp = conf_now->p_pid_kp;
     float pos_ki = conf_now->p_pid_ki;
 
@@ -592,6 +591,7 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
         motor->model_pos_i_term = 0.0f;
         motor->Text_ext_hat_f = 0.0f;
         motor->ctrl_sm_state = CTRL_SM_START;
+        motor->ctrl_sm_index_lost_cycles = 0;
 		motor->status_bits = 0;
         motor->status_bits |= false << STATUS_BIT_SPEED_CONTROL_ACTIVE;
         motor->status_bits |= (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
@@ -635,6 +635,7 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
     {
         const float rpm_deadband = 5.0f;
         const uint32_t still_req_cycles = 5000;
+        const uint32_t index_lost_req_cycles = 250;
         const float abs_rpm = fabsf(motor->m_pll_speed * radps_to_rpm);
 
         switch (motor->ctrl_sm_state) {
@@ -660,6 +661,7 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
                 }
                 if (motor->ctrl_sm_still_cycles >= still_req_cycles) {
                     motor->ctrl_sm_state = CTRL_SM_ENABLE;
+                    motor->ctrl_sm_index_lost_cycles = 0;
                 }
             } else {
                 motor->ctrl_sm_still_cycles = 0;
@@ -668,8 +670,16 @@ void foc_run_pid_control_bike_sim(bool index_found, float dt, motor_all_state_t 
 
         case CTRL_SM_ENABLE:
             if (!index_found) {
-                motor->ctrl_sm_state = CTRL_SM_START;
-                motor->ctrl_sm_still_cycles = 0;
+                if (motor->ctrl_sm_index_lost_cycles < index_lost_req_cycles) {
+                    motor->ctrl_sm_index_lost_cycles++;
+                }
+
+                if (motor->ctrl_sm_index_lost_cycles >= index_lost_req_cycles) {
+                    motor->ctrl_sm_state = CTRL_SM_START;
+                    motor->ctrl_sm_still_cycles = 0;
+                }
+            } else {
+                motor->ctrl_sm_index_lost_cycles = 0;
             }
             break;
         }
@@ -1464,4 +1474,3 @@ float ramp_rational_p2(float x, float x_sat) {
 
     return x2 / (x2 + x02);
 }
-

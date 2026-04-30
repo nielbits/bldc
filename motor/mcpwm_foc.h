@@ -176,6 +176,9 @@ float mcpwm_foc_get_uw_angle_sp(void);
 float mcpwm_foc_get_pos_term_speed(void);
 float mcpwm_foc_get_speed_error(void);
 uint32_t mcpwm_foc_get_status_bits(void);
+float mcpwm_foc_get_ctrl_sm_state_dbg(void);
+float mcpwm_foc_get_ctrl_sm_still_cycles_dbg(void);
+float mcpwm_foc_get_ctrl_sm_index_lost_cycles_dbg(void);
 float mcpwm_foc_get_t_e(void);
 
 void mcpwm_foc_set_bike_runtime(float gear_ratio_bike,

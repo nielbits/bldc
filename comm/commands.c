@@ -968,9 +968,9 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		buffer_append_float32(send_buffer, mcpwm_get_incline_deg_ist(), 1e3, &ind);
 		buffer_append_float32(send_buffer, mcpwm_foc_get_t_e(), 1e3, &ind);
 		buffer_append_float32(send_buffer, mcpwm_foc_get_t_ff(), 1e3, &ind);
-		buffer_append_float32(send_buffer, 7.007f, 1e3, &ind);
-		buffer_append_float32(send_buffer, 8.008f, 1e3, &ind);
-		buffer_append_float32(send_buffer, 9.009f, 1e3, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_ctrl_sm_state_dbg(), 1e3, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_ctrl_sm_still_cycles_dbg(), 1e3, &ind);
+		buffer_append_float32(send_buffer, mcpwm_foc_get_ctrl_sm_index_lost_cycles_dbg(), 1e3, &ind);
 		buffer_append_uint32(send_buffer, mcpwm_foc_get_status_bits(), &ind);
 
 		reply_func(send_buffer, ind);

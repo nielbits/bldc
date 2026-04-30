@@ -412,6 +412,7 @@ void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2) {
 	m_motor_1.pumptrack_period_min = 0.5f;
 
 	m_motor_1.ctrl_sm_still_cycles = 0;
+	m_motor_1.ctrl_sm_index_lost_cycles = 0;
 	m_motor_1.ctrl_sm_state = CTRL_SM_START;
 
 	m_motor_1.forced_freewheel = false;
@@ -904,6 +905,7 @@ void mcpwm_foc_start_bike_sim(void) {
 	motor->forced_freewheel = false;
 	motor->freewheel_active = false;
 	motor->ctrl_sm_still_cycles = 0;
+	motor->ctrl_sm_index_lost_cycles = 0;
 	motor->ctrl_sm_state = CTRL_SM_START;
 
 }
@@ -928,6 +930,7 @@ void mcpwm_foc_stop_bike_sim(void) {
 	motor->forced_freewheel = false;
 	motor->freewheel_active = false;
 	motor->ctrl_sm_still_cycles = 0;
+	motor->ctrl_sm_index_lost_cycles = 0;
 	motor->ctrl_sm_state = CTRL_SM_START;
 
 	if (motor->m_state != MC_STATE_RUNNING) {
@@ -1580,6 +1583,18 @@ float mcpwm_foc_get_t_e(void) {
 
 uint32_t mcpwm_foc_get_status_bits(void) {
 	return get_motor_now()->status_bits;
+}
+
+float mcpwm_foc_get_ctrl_sm_state_dbg(void) {
+	return (float)get_motor_now()->ctrl_sm_state;
+}
+
+float mcpwm_foc_get_ctrl_sm_still_cycles_dbg(void) {
+	return (float)get_motor_now()->ctrl_sm_still_cycles;
+}
+
+float mcpwm_foc_get_ctrl_sm_index_lost_cycles_dbg(void) {
+	return (float)get_motor_now()->ctrl_sm_index_lost_cycles;
 }
 
 float mcpwm_get_incline_deg_ist(void) {
