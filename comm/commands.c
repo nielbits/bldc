@@ -505,10 +505,24 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		send_buffer[ind++] = mc_interface_get_fault(); // 55
 		buffer_append_float32(send_buffer, mc_interface_get_pid_pos_now(), 1e6, &ind); // 56 57 58 59 
 		uint8_t current_controller_id = app_get_configuration()->controller_id;
+		#ifdef HW_HAS_DUAL_MOTORS
+		if (mc_interface_get_motor_thread() == 2) {
+			current_controller_id = utils_second_motor_id();
+		}
+		#endif
 		send_buffer[ind++] = current_controller_id; //60
-		buffer_append_float16(send_buffer, NTC_TEMP_MOS1_M2(), 1e1, &ind);//61 62  
-		buffer_append_float16(send_buffer, NTC_TEMP_MOS2_M2(), 1e1, &ind);//63 64
-		buffer_append_float16(send_buffer, NTC_TEMP_MOS3_M2(), 1e1, &ind);//65 66
+		#ifdef HW_HAS_DUAL_MOTORS
+		if (mc_interface_get_motor_thread() == 2) {
+			buffer_append_float16(send_buffer, NTC_TEMP_MOS1_M2(), 1e1, &ind);//61 62
+			buffer_append_float16(send_buffer, NTC_TEMP_MOS2_M2(), 1e1, &ind);//63 64
+			buffer_append_float16(send_buffer, NTC_TEMP_MOS3_M2(), 1e1, &ind);//65 66
+		} else
+		#endif
+		{
+			buffer_append_float16(send_buffer, NTC_TEMP_MOS1(), 1e1, &ind);//61 62
+			buffer_append_float16(send_buffer, NTC_TEMP_MOS2(), 1e1, &ind);//63 64
+			buffer_append_float16(send_buffer, NTC_TEMP_MOS3(), 1e1, &ind);//65 66
+		}
 		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vd(), 1e3, &ind); //67 68 69 70
 		buffer_append_float32(send_buffer, mc_interface_read_reset_avg_vq(), 1e3, &ind); //71 72 73 74
 		uint8_t status = 0;
@@ -529,19 +543,19 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_theta(), 1e4, &ind);    // 100, 101, 102, 103
 		buffer_append_float32(send_buffer, mcpwm_foc_get_leso_omega(), 1e4, &ind);// 104, 105, 106, 107
 		buffer_append_float32(send_buffer, mcpwm_foc_get_tp_observed(), 1e4, &ind); // 108, 109, 110, 111
-		buffer_append_int32(send_buffer, 10, &ind);            // 112, 113, 114, 115
+		buffer_append_int32(send_buffer, 99, &ind);            // 112, 113, 114, 115
 		buffer_append_float32(send_buffer, mcpwm_foc_get_i_res(), 1e6, &ind);       // 116, 117, 118, 119
 		buffer_append_float32(send_buffer, mcpwm_foc_get_uw_angle_sp(), 1e4, &ind); // 120, 121, 122, 123
-		buffer_append_float32(send_buffer, 10.0f, 1e3, &ind);// 124, 125, 126, 127
+		buffer_append_float32(send_buffer, 99.9f, 1e3, &ind);// 124, 125, 126, 127
 		buffer_append_float32(send_buffer, mcpwm_foc_get_pos_term_speed(), 1e3, &ind);              // 128, 129, 130, 131
 		buffer_append_float32(send_buffer, mcpwm_foc_get_speed_error(), 1e3, &ind);              // 132, 133, 134, 135
 		buffer_append_float32(send_buffer, mcpwm_foc_t_f_combine() , 1e3, &ind);              // 136, 137, 138, 139
 		buffer_append_float32(send_buffer, mcpwm_get_incline_deg_ist() , 1e3, &ind);              // 140, 141, 142, 143
 		buffer_append_float32(send_buffer, mcpwm_foc_get_t_e() , 1e3, &ind);              // 144, 145, 146, 147
 		buffer_append_float32(send_buffer, mcpwm_foc_get_t_ff() , 1e3, &ind);              // 148, 149, 150, 151
-		buffer_append_float32(send_buffer, (float)(7.007) , 1e3, &ind);              // 152, 153, 154, 155
-		buffer_append_float32(send_buffer, (float)(8.008) , 1e3, &ind);              // 156, 157, 158, 159
-		buffer_append_float32(send_buffer, (float)(9.009) , 1e3, &ind);              // 160, 161, 162, 163
+		buffer_append_float32(send_buffer, mcpwm_foc_get_ctrl_sm_state_dbg(), 1e3, &ind);              // 152, 153, 154, 155
+		buffer_append_float32(send_buffer, mcpwm_foc_get_ctrl_sm_still_cycles_dbg(), 1e3, &ind);              // 156, 157, 158, 159
+		buffer_append_float32(send_buffer, mcpwm_foc_get_ctrl_sm_index_lost_cycles_dbg(), 1e3, &ind);              // 160, 161, 162, 163
 		buffer_append_uint32(send_buffer, mcpwm_foc_get_status_bits() , &ind);   			 // 164, 165, 166, 167
 
 	
@@ -597,7 +611,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		timeout_reset();
 
 		ind = 0;
-		uint8_t send_buffer[16];
+		uint8_t send_buffer[8];
 		send_buffer[ind++] = COMM_SET_BIKE_RUNTIME;
 		reply_func(send_buffer, ind);
 	} break;
@@ -657,7 +671,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		timeout_reset();
 
 		ind = 0;
-		uint8_t send_buffer[16];
+		uint8_t send_buffer[8];
 		send_buffer[ind++] = COMM_SET_BIKE_SIM_PARAMS;
 		reply_func(send_buffer, ind);
 	} break;
@@ -714,14 +728,14 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 		timeout_reset();
 
 		ind = 0;
-		uint8_t send_buffer[16];
+		uint8_t send_buffer[8];
 		send_buffer[ind++] = COMM_SET_CONTROL_PARAMS;
 		reply_func(send_buffer, ind);
 		} break;
 
 	case COMM_GET_CONTROL_PARAMS: {
 		int32_t ind = 0;
-		uint8_t send_buffer[128];
+		uint8_t send_buffer[64];
 		send_buffer[ind++] = COMM_GET_CONTROL_PARAMS;
 
 		buffer_append_float32(send_buffer, mcpwm_foc_get_p_fo_hz(), 1e6, &ind);

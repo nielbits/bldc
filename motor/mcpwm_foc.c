@@ -5330,6 +5330,20 @@ uint32_t mcpwm_foc_get_status_bits(void){
 	return get_motor_now()->status_bits;
 }
 
+float mcpwm_foc_get_ctrl_sm_state_dbg(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? (float)motor->ctrl_sm_state : 0.0f;
+}
+
+float mcpwm_foc_get_ctrl_sm_still_cycles_dbg(void) {
+	volatile motor_all_state_t *motor = get_motor_now();
+	return motor ? (float)motor->ctrl_sm_still_cycles : 0.0f;
+}
+
+float mcpwm_foc_get_ctrl_sm_index_lost_cycles_dbg(void) {
+	return 0.0f;
+}
+
 //parameter change functions
 // Parameter index/value helpers.
 // These functions operate on the current motor_all_state_t returned by get_motor_now().
