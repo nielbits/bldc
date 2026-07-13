@@ -659,12 +659,19 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     float angle_deg_now = encoder_read_deg();
     float angle_rad_now = angle_deg_now * ((float)M_PI / 180.0f);
 
-    float delta_rad = utils_angle_difference_rad(angle_rad_now, motor->kalman_last_angle_rad);
+    float delta_rad = utils_angle_difference_rad(
+        angle_rad_now,
+        motor->kalman_last_angle_rad
+    );
+
     motor->kalman_last_angle_rad = angle_rad_now;
 
-    motor->unwrapped_theta += delta_rad;
-    motor->kalman_last_delta_rad = delta_rad;
+    if (conf_now->foc_encoder_inverted) {
+        delta_rad = -delta_rad;
+    }
 
+    motor->unwrapped_theta += delta_rad;
+    
     // Plant parameters
     UTILS_LP_FAST(motor->p_gear_ratio_filtered, motor->gear_ratio_bike, 0.001f);
     float gear_ratio = motor->p_gear_ratio_filtered;
@@ -720,8 +727,8 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     UTILS_LP_FAST(motor->unwrapped_theta_filtered, motor->unwrapped_theta, 0.15f);
 
     const float omega_for_leso = motor_mech_radps;
-    leso3_step(motor, dt, motor->te_calculated, motor->unwrapped_theta_filtered, omega_for_leso);
-
+    leso3_step(motor, dt, motor->te_calculated, motor->unwrapped_theta, omega_for_leso);
+/*
     // ================= FREEWHEEL =================
     const float FW_SLIP_REENG      = 20.0f;
     const float FW_T_REENG         = 2.0f;
@@ -765,7 +772,7 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         motor->freewheel_active = false;
         motor->forced_freewheel = false;
     }
-
+*/
     const bool fw = (motor->freewheel_active || motor->forced_freewheel);
 
     // ================= Model integration =================

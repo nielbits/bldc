@@ -1104,7 +1104,7 @@ typedef enum {
 
 	COMM_SHUTDOWN							= 156,
 	
-	COMM_GET_VALUES_EXP						= 157,
+	COMM_GET_VALUES_EXP						= 164,
 
 	COMM_SET_BIKE_RUNTIME					= 158,
 	COMM_GET_BIKE_RUNTIME					= 159,
