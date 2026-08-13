@@ -23,6 +23,46 @@
 #include "encoder/encoder.h"
 #include <math.h>
 
+/*
+ * Bicycle torque-observer implementation:
+ *
+ * The original third-order linear extended-state observer (LESO) is active.
+ * The simplified speed-differentiation estimator is retained under #if 0
+ * for later diagnostic comparison. No state-structure changes are required.
+ */
+
+/*
+ * Coordinate convention for the bicycle model.
+ *
+ * On this machine:
+ *
+ *     native VESC positive rotation = physical bicycle reverse
+ *
+ * The bicycle model uses:
+ *
+ *     bicycle positive rotation = physical bicycle forward
+ *
+ * Therefore the conversion sign is -1.
+ *
+ * Since the conversion is only a sign reversal, the inverse conversion is
+ * identical:
+ *
+ *     bicycle_value = BIKE_DIRECTION_SIGN * vesc_value
+ *     vesc_value    = BIKE_DIRECTION_SIGN * bicycle_value
+ *
+ * Keep foc_encoder_inverted at the value required for correct commutation.
+ * This high-level sign is independent of motor-commutation configuration.
+ */
+#define BIKE_DIRECTION_SIGN (-1.0f)
+
+static inline float bike_from_vesc(float value) {
+    return BIKE_DIRECTION_SIGN * value;
+}
+
+static inline float vesc_from_bike(float value) {
+    return BIKE_DIRECTION_SIGN * value;
+}
+
 // See http://cas.ensmp.fr/~praly/Telechargement/Journaux/2010-IEEE_TPEL-Lee-Hong-Nam-Ortega-Praly-Astolfi.pdf
 void foc_observer_update(float v_alpha, float v_beta, float i_alpha, float i_beta,
 		float dt, observer_state *state, float *phase, motor_all_state_t *motor) {
@@ -504,7 +544,64 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     float p_term_pos;
     float pos_error;
 
-    index_found = encoder_index_found();
+    /*
+     * Do not require a physical incremental-encoder index pulse for the
+     * custom bicycle-controller state machine.
+     *
+     * The configured encoder is absolute and already supplies a usable
+     * mechanical angle. encoder_index_found() can therefore remain false
+     * permanently even while encoder_read_deg() and FOC commutation work.
+     *
+     * Preserve every available readiness indication:
+     *   1. the value supplied by the caller,
+     *   2. the native VESC index-found flag,
+     *   3. a finite absolute-encoder angle.
+     */
+    const bool index_found_from_caller = index_found;
+    const bool native_index_found = encoder_index_found();
+    bool encoder_angle_valid = false;
+
+    /*
+     * Keep mechanical position tracking alive independently of whether
+     * the speed controller is enabled.
+     */
+    {
+        const float angle_deg_now = encoder_read_deg();
+
+        if (isfinite(angle_deg_now)) {
+            encoder_angle_valid = true;
+
+            const float angle_rad_now =
+                angle_deg_now * ((float)M_PI / 180.0f);
+
+            float delta_rad =
+                utils_angle_difference_rad(
+                    angle_rad_now,
+                    motor->kalman_last_angle_rad
+                );
+
+            motor->kalman_last_angle_rad = angle_rad_now;
+
+            if (conf_now->foc_encoder_inverted) {
+                delta_rad = -delta_rad;
+            }
+
+            /*
+             * encoder_read_deg() is first corrected into the native VESC
+             * mechanical direction above. Convert that increment into the
+             * bicycle convention, where physical forward is positive.
+             */
+            delta_rad = bike_from_vesc(delta_rad);
+
+            motor->kalman_last_delta_rad = delta_rad;
+            motor->unwrapped_theta += delta_rad;
+        }
+    }
+
+    const bool encoder_ready =
+        index_found_from_caller ||
+        native_index_found ||
+        encoder_angle_valid;
 
     float pos_kp = conf_now->p_pid_kp;
     float pos_ki = conf_now->p_pid_ki;
@@ -518,13 +615,59 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         motor->model_pos_prev_error = 0.0f;
         motor->model_pos_d_filter = 0.0f;
         motor->model_pos_i_term = 0.0f;
+
+        /*
+         * Reset the LESO safely while keeping its position and speed states
+         * synchronized with the current bicycle-coordinate measurements.
+         *
+         * leso_z4 is not part of the third-order LESO. It is reused only as
+         * an initialization flag:
+         *
+         *     0.0f = initialize on the next valid LESO call
+         *     1.0f = initialized
+         */
+        motor->leso_th = motor->unwrapped_theta;
+        motor->leso_om =
+            bike_from_vesc(
+                motor->m_pll_speed *
+                motor->c_inv_pole_pairs
+            );
+        motor->leso_z = 0.0f;
+        motor->leso_z4 = 0.0f;
+
+        motor->Tf_hat = 0.0f;
+        motor->Text_ext_hat = 0.0f;
         motor->Text_ext_hat_f = 0.0f;
-        motor->ctrl_sm_state = CTRL_SM_START;
-        motor->status_bits |= false     << STATUS_BIT_SPEED_CONTROL_ACTIVE;
-        motor->status_bits |= (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
-        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_START) << STATUS_BIT_CTRL_SM_START;
-        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_INDEX_FOUND) << STATUS_BIT_CTRL_SM_INDEX_FOUND;
-        motor->status_bits |= (motor->ctrl_sm_state == CTRL_SM_ENABLE) << STATUS_BIT_CTRL_SM_ENABLE;
+        motor->tp_observed = 0.0f;
+
+        motor->freewheel_active = false;
+        motor->forced_freewheel = false;
+
+        /*
+         * Do NOT force ctrl_sm_state back to START merely because the VESC
+         * control mode is temporarily not CONTROL_MODE_SPEED.
+         *
+         * A short mode transition would otherwise destroy the controller
+         * enable state and force the full START -> INDEX_FOUND -> ENABLE
+         * sequence again.
+         *
+         * The state machine is allowed to return to START only when all encoder
+         * readiness indications are lost in the state-machine code below.
+         */
+
+        motor->status_bits = 0;
+        motor->status_bits |=
+            (motor->forced_freewheel) << STATUS_BIT_FORCED_FREEWHEEL;
+        motor->status_bits |=
+            (motor->ctrl_sm_state == CTRL_SM_START)
+            << STATUS_BIT_CTRL_SM_START;
+        motor->status_bits |=
+            (motor->ctrl_sm_state == CTRL_SM_INDEX_FOUND)
+            << STATUS_BIT_CTRL_SM_INDEX_FOUND;
+        motor->status_bits |=
+            (motor->ctrl_sm_state == CTRL_SM_ENABLE)
+            << STATUS_BIT_CTRL_SM_ENABLE;
+
         return;
     }
 
@@ -551,9 +694,17 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
     }
 
     if (fabsf(t_rpm) > clamp) {
+        /*
+         * last_rpm is stored in bicycle coordinates.
+         */
         rpm = motor->last_rpm;
     } else {
-        rpm = t_rpm;
+        /*
+         * t_rpm is native VESC ERPM. Convert it once here. From this point
+         * onward, every speed, position, model and controller quantity in
+         * this function uses bicycle coordinates.
+         */
+        rpm = bike_from_vesc(t_rpm);
     }
 
     motor->last_rpm = rpm;
@@ -570,16 +721,18 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         default:
         case CTRL_SM_START:
             motor->ctrl_sm_still_cycles = 0;
-            if (index_found) {
+
+            if (encoder_ready) {
                 motor->ctrl_sm_state = CTRL_SM_INDEX_FOUND;
-                motor->unwrapped_theta = 0.0f;
+                //motor->unwrapped_theta = 0.0f;
             }
             break;
 
         case CTRL_SM_INDEX_FOUND:
-            if (!index_found) {
+            if (!encoder_ready) {
                 motor->ctrl_sm_state = CTRL_SM_START;
                 motor->ctrl_sm_still_cycles = 0;
+                motor->leso_z4 = 0.0f;
                 break;
             }
 
@@ -596,9 +749,10 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
             break;
 
         case CTRL_SM_ENABLE:
-            if (!index_found) {
+            if (!encoder_ready) {
                 motor->ctrl_sm_state = CTRL_SM_START;
                 motor->ctrl_sm_still_cycles = 0;
+                motor->leso_z4 = 0.0f;
             }
             break;
         }
@@ -655,23 +809,11 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         motor->m_speed_i_term = 0.0f;
     }
 
-    // ---------------- Encoder unwrap ----------------
-    float angle_deg_now = encoder_read_deg();
-    float angle_rad_now = angle_deg_now * ((float)M_PI / 180.0f);
+    /*
+     * Encoder unwrapping is performed at the beginning of this function,
+     * before the control-mode early return.
+     */
 
-    float delta_rad = utils_angle_difference_rad(
-        angle_rad_now,
-        motor->kalman_last_angle_rad
-    );
-
-    motor->kalman_last_angle_rad = angle_rad_now;
-
-    if (conf_now->foc_encoder_inverted) {
-        delta_rad = -delta_rad;
-    }
-
-    motor->unwrapped_theta += delta_rad;
-    
     // Plant parameters
     UTILS_LP_FAST(motor->p_gear_ratio_filtered, motor->gear_ratio_bike, 0.001f);
     float gear_ratio = motor->p_gear_ratio_filtered;
@@ -697,37 +839,154 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         motor->pumptrack_time = 0.0f;
     }
 
-    float speed_dir_ref = SIGN(motor->d_erpm_soll);
-    float slope = incline_deg_cmd * ((float)M_PI / 180.0f) * speed_dir_ref;
     motor->incline_result = incline_deg_cmd;
 
-    const float motor_mech_radps = rpm * erpm_to_mech_radps;
-    float speed = motor_mech_radps * motor->p_wheel_radius / gearing;
+    /*
+     * Sign-audited virtual-bicycle force model.
+     *
+     * IMPORTANT:
+     * All forces that update model_v must be computed from model_v, not from
+     * the measured motor speed. Mixing measured speed with virtual-model
+     * direction can make aerodynamic, rolling and incline terms disagree in
+     * sign whenever the physical plant temporarily does not track the model.
+     *
+     * F_combine is a SIGNED load-force quantity used as:
+     *
+     *     m * dv/dt = F_drive - F_combine
+     *
+     * Therefore:
+     *
+     *     forward model motion  -> F_combine > 0
+     *     reverse model motion  -> F_combine < 0
+     *
+     * A negative F_combine in reverse operation is not an inverted loss:
+     * subtracting it produces a positive force that opposes reverse motion.
+     */
+    const float motor_mech_radps =
+        rpm * erpm_to_mech_radps;
 
-    // Forces
-    float speed_ratio = fabsf(motor->d_erpm_soll) / motor->p_speed_limit_pos_control_activation;
+    const float model_speed =
+        motor->model_v;
+
+    const float model_erpm_for_losses =
+        model_speed *
+        gearing *
+        motor->c_wheel_radius_inv *
+        mech_radps_to_erpm;
+
+    float model_direction = 0.0f;
+
+    /*
+     * Small deadband prevents resistance-direction chatter around zero.
+     * d_erpm_soll is used only as a fallback and is itself a model signal.
+     */
+    const float direction_deadband_mps = 1.0e-4f;
+
+    if (model_speed > direction_deadband_mps) {
+        model_direction = 1.0f;
+    } else if (model_speed < -direction_deadband_mps) {
+        model_direction = -1.0f;
+    } else {
+        model_direction = SIGN(motor->d_erpm_soll);
+    }
+
+    /*
+     * The existing incline semantics are preserved:
+     * a positive incline command represents an uphill load in the current
+     * model-travel direction. Thus it always resists travel rather than
+     * becoming an assisting downhill force when the model reverses.
+     */
+    const float slope =
+        incline_deg_cmd *
+        ((float)M_PI / 180.0f) *
+        model_direction;
+
+    // Smooth rolling/grade forces near zero virtual speed.
+    float speed_ratio = 0.0f;
+
+    if (motor->p_speed_limit_pos_control_activation > 1.0e-6f) {
+        speed_ratio =
+            fabsf(model_erpm_for_losses) /
+            motor->p_speed_limit_pos_control_activation;
+    }
+
     float smooth_factor = speed_ratio;
     if (smooth_factor > 1.0f) smooth_factor = 1.0f;
+    if (smooth_factor < 0.0f) smooth_factor = 0.0f;
 
-    float F_air = 0.5f * motor->p_air_ro * motor->p_c_air * motor->c_area_s * speed * fabsf(speed);
-    float F_roll = smooth_factor * (motor->p_c_rr * motor->p_weight * 9.81f * cosf(slope));
-    float F_incline = smooth_factor * motor->p_weight * 9.81f * sinf(slope);
-    float F_bearings = smooth_factor * (motor->p_c_bw * motor->p_k_v_bw) * speed;
+    /*
+     * Signed load terms. Every velocity-dependent term has the same sign as
+     * virtual motion, so subtracting F_combine always dissipates energy.
+     */
+    const float F_air =
+        0.5f *
+        motor->p_air_ro *
+        motor->p_c_air *
+        motor->c_area_s *
+        model_speed *
+        fabsf(model_speed);
 
-    float F_combine = (F_air + F_roll + F_incline + F_bearings);
+    const float F_roll =
+        smooth_factor *
+        motor->p_c_rr *
+        motor->p_weight *
+        9.81f *
+        cosf(slope) *
+        model_direction;
+
+    const float F_incline =
+        smooth_factor *
+        motor->p_weight *
+        9.81f *
+        sinf(slope);
+
+    const float F_bearings =
+        smooth_factor *
+        (motor->p_c_bw * motor->p_k_v_bw) *
+        model_speed;
+
+    const float F_combine =
+        F_air +
+        F_roll +
+        F_incline +
+        F_bearings;
+
     motor->d_f_combine = F_combine;
 
-    // Motor torque estimate
-    motor->te_calculated =
+    /*
+     * Electromagnetic torque estimate.
+     *
+     * Match the March implementation by using the instantaneous dq currents,
+     * not iq_filter. Keep the current bicycle-coordinate sign convention at
+     * the boundary so the rest of the controller/observer stays consistent.
+     */
+    const float Te_native =
         motor->m_motor_state.iq * motor->p_kT +
-        (motor->m_motor_state.iq * motor->m_motor_state.id) * (motor->p_ld - motor->p_lq);
+        (motor->m_motor_state.iq * motor->m_motor_state.id) *
+        (motor->p_ld - motor->p_lq);
+
+    motor->te_calculated = bike_from_vesc(Te_native);
 
     // theta filter
     motor->unwrapped_theta_filtered_prev = motor->unwrapped_theta_filtered;
     UTILS_LP_FAST(motor->unwrapped_theta_filtered, motor->unwrapped_theta, 0.15f);
 
     const float omega_for_leso = motor_mech_radps;
-    leso3_step(motor, dt, motor->te_calculated, motor->unwrapped_theta, omega_for_leso);
+
+    /*
+     * Third-order LESO inputs are all expressed in bicycle coordinates:
+     *
+     *     theta = unwrapped mechanical position [rad]
+     *     omega = mechanical speed [rad/s]
+     *     Te    = electromagnetic motor-shaft torque [Nm]
+     */
+    leso3_step(
+        motor,
+        dt,
+        motor->te_calculated,
+        motor->unwrapped_theta,
+        omega_for_leso
+    );
 /*
     // ================= FREEWHEEL =================
     const float FW_SLIP_REENG      = 20.0f;
@@ -773,10 +1032,25 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         motor->forced_freewheel = false;
     }
 */
-    const bool fw = (motor->freewheel_active || motor->forced_freewheel);
+    /*
+     * Freewheel state-machine code is disabled above. Force the associated
+     * states off so stale values cannot disable the model or PI loop.
+     */
+    motor->freewheel_active = false;
+    motor->forced_freewheel = false;
+    const bool fw = false;
 
     // ================= Model integration =================
-    const float F_drive = (motor->tp_observed * motor->c_wheel_radius_inv) * gearing;
+    /*
+     * LESO external torque is in bicycle coordinates:
+     *
+     *     positive tp_observed = rider drives physical bicycle forward
+     *
+     * Hence positive F_drive increases positive virtual-bicycle speed.
+     */
+    const float F_drive =
+        (motor->tp_observed * motor->c_wheel_radius_inv) *
+        gearing;
 
     float accel_now;
     if (fw) {
@@ -853,7 +1127,13 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
 
     float iq_ff_norm = iq_ff * motor->c_iq_norm_inv;
 
-    motor->c_v_q_ff = iq_ff * motor->m_res_est;
+    /*
+     * iq_ff is in bicycle coordinates. c_v_q_ff is consumed by the native
+     * VESC q-axis current controller, so convert it back.
+     */
+    motor->c_v_q_ff =
+        vesc_from_bike(iq_ff) *
+        motor->m_res_est;
 
     float i_inc = error * sp_ki_eff * dt * (1.0f / 20.0f);
     bool wants_accel = (i_inc > 0.0f);
@@ -900,9 +1180,22 @@ void foc_run_pid_control_speed(bool index_found, float dt, motor_all_state_t *mo
         motor->Te_set = 0.0f;
     }
 
+    /*
+     * Diagnostic value kept in bicycle coordinates.
+     */
     motor->d_i_res = -iq_ff;
 
-    motor->m_iq_set = output * (conf_now->lo_current_max * conf_now->l_current_max_scale);
+    /*
+     * output is a bicycle-coordinate normalized torque/current command.
+     * m_iq_set is native VESC q-current, so this is the final inverse
+     * coordinate conversion.
+     */
+    motor->m_iq_set =
+        vesc_from_bike(
+            output *
+            conf_now->lo_current_max *
+            conf_now->l_current_max_scale
+        );
 
     motor->status_bits = 0;
     motor->status_bits |= true << STATUS_BIT_SPEED_CONTROL_ACTIVE;
@@ -1132,163 +1425,446 @@ float smooth_force(float mag, float v, float v_eps) {
 // States in m: leso_th [rad], leso_om [rad/s], leso_z [rad/s^2]
 // Outputs: m->Text_ext_hat_f [Nm] (filtered total torque estimate)
 // Inputs: theta_meas = UNWRAPPED angle [rad], Te_meas = kT * iq_meas_f [Nm], dt [s]
+/*
+ * Active third-order LESO.
+ *
+ * States:
+ *     leso_th = estimated unwrapped mechanical angle [rad]
+ *     leso_om = estimated mechanical speed [rad/s]
+ *     leso_z  = estimated external acceleration disturbance [rad/s^2]
+ *
+ * leso_z4 is not an observer state here; it is only an initialization flag.
+ */
 inline void leso3_step(
     motor_all_state_t *m,
     float dt,
     float Te_meas,
     float theta_meas,
     float omega_meas
-){
-    if (!m || dt <= 0.0f) return;
-    if (!(m->p_J > 0.0f)) return;
+) {
+    if (!m || !(dt > 0.0f)) {
+        return;
+    }
 
-    const float B   = m->p_B;
-    const float b0  = m->c_b0;
-    const float b1  = m->c_b1;
-    const float b2  = m->c_b2;
-    const float b3  = m->c_b3;
-    const float gz  = m->c_gz;
+    if (!(m->p_J > 0.0f)) {
+        return;
+    }
 
-    // ---------- Linear friction only ----------
-    m->Tf_hat = B * omega_meas;
-    const float Te_eff = Te_meas;
-    // -----------------------------------------
+    if (!isfinite(Te_meas) ||
+        !isfinite(theta_meas) ||
+        !isfinite(omega_meas)) {
+        return;
+    }
+
+    /*
+     * Initialize directly from the measured bicycle-coordinate position and
+     * speed. This prevents a large innovation when entering speed mode with
+     * an already nonzero unwrapped position.
+     */
+    if (m->leso_z4 != 1.0f ||
+        !isfinite(m->leso_th) ||
+        !isfinite(m->leso_om) ||
+        !isfinite(m->leso_z) ||
+        !isfinite(m->Text_ext_hat_f)) {
+
+        m->leso_th = theta_meas;
+        m->leso_om = omega_meas;
+        m->leso_z = 0.0f;
+        m->leso_z4 = 1.0f;
+
+        m->Tf_hat = m->p_B * omega_meas;
+        m->Text_ext_hat = 0.0f;
+        m->Text_ext_hat_f = 0.0f;
+        m->tp_observed = 0.0f;
+        return;
+    }
+
+    const float B =
+        (isfinite(m->p_B) && m->p_B >= 0.0f) ?
+        m->p_B :
+        0.0f;
+    const float b0 = m->c_b0;
+    const float b1 = m->c_b1;
+    const float b2 = m->c_b2;
+    const float b3 = m->c_b3;
+    const float gz = m->c_gz;
 
     const float h = 0.5f * dt;
 
-    // Old states
+    // Previous observer states
     const float thk = m->leso_th;
     const float omk = m->leso_om;
     const float zk  = m->leso_z;
 
-    // Linear innovation
+    // Position innovation
     const float ek = theta_meas - thk;
 
-    // --- Linear system coefficients ---
+    /*
+     * LESO model:
+     *
+     * theta_dot = omega + b1 * e
+     *
+     * omega_dot =
+     *     b0 * (Te - B * omega)
+     *     + z
+     *     + b2 * e
+     *
+     * z_dot =
+     *     b3 * e
+     *     - gz * z
+     */
+
+    // Implicit trapezoidal coefficients
     const float a11 = 1.0f + h * b1;
     const float a12 = -h;
 
-    const float a21 =  h * b2;
-    const float a22 = 1.0f + h * (b0 * B);
+    const float a21 = h * b2;
+    const float a22 = 1.0f + h * b0 * B;
     const float a23 = -h;
 
-    const float a31 =  h * b3;
+    const float a31 = h * b3;
     const float a33 = 1.0f + h * gz;
 
-    const float rhs1 = thk + h * (omk + b1 * ek) + h * (b1 * theta_meas);
+    // Explicit part evaluated at state k
+    const float fk_th =
+        omk +
+        b1 * ek;
 
-    const float fk_om = b0 * (Te_eff - B * omk) + zk + b2 * ek;
-    const float rhs2  = omk + h * fk_om + h * (b0 * Te_eff + b2 * theta_meas);
+    const float fk_om =
+        b0 * (Te_meas - B * omk) +
+        zk +
+        b2 * ek;
 
-    const float fk_z  = b3 * ek - gz * zk;
-    const float rhs3  = zk + h * fk_z + h * (b3 * theta_meas);
+    const float fk_z =
+        b3 * ek -
+        gz * zk;
 
-    // Solve sparse system
+    // Right-hand sides
+    const float rhs1 =
+        thk +
+        h * fk_th +
+        h * b1 * theta_meas;
+
+    const float rhs2 =
+        omk +
+        h * fk_om +
+        h * (b0 * Te_meas + b2 * theta_meas);
+
+    const float rhs3 =
+        zk +
+        h * fk_z +
+        h * b3 * theta_meas;
+
+    // Sparse implicit solve
     const float inv_a11 = 1.0f / a11;
     const float inv_a33 = 1.0f / a33;
 
-    const float th_const = rhs1 * inv_a11;
-    const float th_om    = (-a12) * inv_a11;
+    const float th_const =
+        rhs1 * inv_a11;
 
-    const float z_const  = (rhs3 - a31 * th_const) * inv_a33;
-    const float z_om     = (-(a31 * th_om)) * inv_a33;
+    const float th_om =
+        -a12 * inv_a11;
 
-    const float const2 = a21 * th_const + a23 * z_const;
-    const float coeff2 = a21 * th_om + a22 + a23 * z_om;
+    const float z_const =
+        (rhs3 - a31 * th_const) * inv_a33;
 
-    float om1 = omk;
-    if (fabsf(coeff2) > 1e-6f) {
-        om1 = (rhs2 - const2) / coeff2;
+    const float z_om =
+        -(a31 * th_om) * inv_a33;
+
+    const float const2 =
+        a21 * th_const +
+        a23 * z_const;
+
+    const float coeff2 =
+        a21 * th_om +
+        a22 +
+        a23 * z_om;
+
+    if (!isfinite(coeff2) || fabsf(coeff2) <= 1e-9f) {
+        return;
     }
 
-    float th1 = th_const + th_om * om1;
-    float z1  = z_const  + z_om  * om1;
+    const float om1 =
+        (rhs2 - const2) / coeff2;
 
-    // ====================== CLAMPS (post-solve) ======================
+    const float th1 =
+        th_const + th_om * om1;
 
-    // Torque-based z bound
-    const float z_abs_max = m->c_z_abs_max;
-    if (z1 >  z_abs_max){
-            z1 =  z_abs_max;
-        //    if (z1 > 4.0f* z_abs_max){
-        //        m->ctrl_sm_state = CTRL_SM_START; 
-        //    }
-           // If the torque estimate gets too positive, we likely have a problem. Restart the controller to be safe.
-    } 
+    const float z1 =
+        z_const + z_om * om1;
 
-
-    if (z1 < -z_abs_max)
-    { 
-        z1 = -z_abs_max;
-       // if (z1 < -4.0f*z_abs_max){
-       //         m->ctrl_sm_state = CTRL_SM_START; 
-       //     }
-           // If the torque estimate gets too negative, we likely have a problem. Restart the controller to be safe.
+    if (!isfinite(th1) ||
+        !isfinite(om1) ||
+        !isfinite(z1)) {
+        return;
     }
 
-    // --- omega plausibility clamp + slew on LESO omega state ---
-    {
-        const float om_meas = omega_meas;
-        const float omk_loc = omk;
-        const float om_abs_max = m->c_om_abs_max;
-
-        const float om_floor = 5.0f;
-        const float rel_band = 0.20f;
-
-        float dom_allow = om_floor + rel_band * fabsf(om_meas);
-        if (dom_allow > om_abs_max) dom_allow = om_abs_max;
-
-        float om_target = om1;
-        const float om_lo = om_meas - dom_allow;
-        const float om_hi = om_meas + dom_allow;
-        if (om_target < om_lo) om_target = om_lo;
-        if (om_target > om_hi) om_target = om_hi;
-
-        const float w_s    = 20.0f;
-        const float rate0w = 300.0f;
-        const float rate1w = 6000.0f;
-
-        float s = fabsf(om_meas) / w_s;
-        if (s > 1.0f) s = 1.0f;
-        s = s * s * (3.0f - 2.0f * s);
-
-        const float dom_rate = rate0w + (rate1w - rate0w) * s;
-
-        float dom = om_target - omk_loc;
-        const float dom_max = dom_rate * dt;
-        if (dom >  dom_max) dom =  dom_max;
-        if (dom < -dom_max) dom = -dom_max;
-
-        om1 = omk_loc + dom;
-
-        if (om1 >  om_abs_max) om1 =  om_abs_max;
-        if (om1 < -om_abs_max) om1 = -om_abs_max;
-
-        th1 = th_const + th_om * om1;
-    }
-
-    // --- Slew-limit omega used for reconstruction only ---
-    const float w1_recon    = 1000.0f;
-    const float rate0_recon = 50.0f;
-    const float rate1_recon = 2000.0f;
-
-    const float rate_recon = rate_from_abs_omega(fabsf(omega_meas), w1_recon, rate0_recon, rate1_recon);
-    m->leso_omega_in = slew_limit(omega_meas, m->leso_omega_in, rate_recon, dt);
-    const float omega_leso = m->leso_omega_in;
-
-    // ==================== Commit ====================
+    // Commit pure LESO states: no clamps or slew limits
     m->leso_th = th1;
     m->leso_om = om1;
     m->leso_z  = z1;
 
-    const float Tpedal_ext_hat = m->p_J * z1;
-    m->tp_observed = Tpedal_ext_hat;
+    // Diagnostic friction estimate
+    m->Tf_hat = B * omega_meas;
 
-    const float Text_ext_hat = Tpedal_ext_hat - B * omega_leso;
+    /*
+     * Friction is already explicitly included in the observer plant:
+     *
+     *     Te - B * omega
+     *
+     * Therefore J*z is the external torque referred to the motor shaft.
+     */
+    const float Text_motor_hat =
+        m->p_J * z1;
 
-    const float aT = expf(-m->c_fc_2pi * dt);
-    m->Text_ext_hat_f = aT * m->Text_ext_hat_f + (1.0f - aT) * Text_ext_hat;
+    m->Text_ext_hat = Text_motor_hat;
+
+    // Retain the torque-output LPF.
+    if (isfinite(m->c_fc_2pi) && m->c_fc_2pi > 0.0f) {
+        const float aT =
+            expf(-m->c_fc_2pi * dt);
+
+        m->Text_ext_hat_f =
+            aT * m->Text_ext_hat_f +
+            (1.0f - aT) * Text_motor_hat;
+    } else {
+        m->Text_ext_hat_f =
+            Text_motor_hat;
+    }
+
+    // Filtered observer torque used by the bicycle model/controller
+    m->tp_observed =
+        m->Text_ext_hat_f;
 }
+
+#if 0
+/*
+ * Simplified speed-based external-torque estimator retained for diagnostic
+ * comparison. It is not compiled while the third-order LESO is active.
+ *
+ * Mechanical model:
+ *
+ *     J * alpha = Te - B * omega + Text
+ *
+ * therefore:
+ *
+ *     Text = J * alpha - Te + B * omega
+ *
+ * The estimator uses only measured mechanical speed and electromagnetic
+ * torque. theta_meas is intentionally ignored.
+ *
+ * Existing fields are reused, so motor_all_state_t does not need changes:
+ *
+ *     leso_th = initialization flag, 0.0f or 1.0f
+ *     leso_om = filtered measured mechanical speed [rad/s]
+ *     leso_z  = corrected external disturbance acceleration Text / J
+ *     leso_z4 = learned constant torque bias [Nm]
+ */
+inline void leso3_step(
+    motor_all_state_t *m,
+    float dt,
+    float Te_meas,
+    float theta_meas,
+    float omega_meas
+) {
+    (void)theta_meas;
+
+    if (!m) {
+        return;
+    }
+
+    /*
+     * Reject invalid or unexpectedly long intervals. Reinitialize on the
+     * next valid call instead of differentiating across a timing gap.
+     */
+    if (!(dt > 0.0f) ||
+        dt > 0.020f ||
+        !isfinite(dt) ||
+        !isfinite(Te_meas) ||
+        !isfinite(omega_meas) ||
+        !(m->p_J > 0.0f) ||
+        !isfinite(m->p_J)) {
+
+        m->leso_th = 0.0f;
+        m->leso_z = 0.0f;
+
+        m->Tf_hat = 0.0f;
+        m->Text_ext_hat = 0.0f;
+        m->Text_ext_hat_f = 0.0f;
+        m->tp_observed = 0.0f;
+        return;
+    }
+
+    /*
+     * Use zero viscous friction if B is invalid. A negative B would model
+     * anti-friction and must not be used in the reconstruction.
+     */
+    const float B =
+        (isfinite(m->p_B) && m->p_B >= 0.0f) ?
+        m->p_B :
+        0.0f;
+
+    /*
+     * Speed-filter bandwidth.
+     *
+     * Reuse the existing LESO parameter p_fo_hz so it can be changed
+     * through the existing Python/parameter interface.
+     *
+     * In this simplified estimator:
+     *
+     *     p_fo_hz = measured-speed LPF cutoff [Hz]
+     *
+     * This is no longer an LESO observer bandwidth.
+     */
+    float f_speed_hz = m->p_fo_hz;
+
+    /*
+     * Safe fallback for invalid parameter values.
+     */
+    if (!isfinite(f_speed_hz) || !(f_speed_hz > 0.0f)) {
+        f_speed_hz = 8.0f;
+    }
+
+    const float wc_speed =
+        2.0f * (float)M_PI * f_speed_hz;
+
+    const float a_speed =
+        expf(-wc_speed * dt);
+
+    /*
+     * Initialize directly from measured speed and generate no acceleration
+     * or feedforward impulse on the first valid iteration.
+     */
+    if (m->leso_th != 1.0f ||
+        !isfinite(m->leso_om) ||
+        !isfinite(m->Text_ext_hat_f)) {
+
+        m->leso_th = 1.0f;
+        m->leso_om = omega_meas;
+        m->leso_z = 0.0f;
+
+        m->Tf_hat = B * omega_meas;
+        m->Text_ext_hat = 0.0f;
+        m->Text_ext_hat_f = 0.0f;
+        m->tp_observed = 0.0f;
+        return;
+    }
+
+    const float omega_f_old =
+        m->leso_om;
+
+    const float omega_f_new =
+        a_speed * omega_f_old +
+        (1.0f - a_speed) * omega_meas;
+
+    /*
+     * Derivative of filtered speed: a first-order low-pass
+     * differentiator.
+     */
+    const float alpha_f =
+        (omega_f_new - omega_f_old) / dt;
+
+    const float Tf_hat =
+        B * omega_f_new;
+
+    const float Text_motor_raw =
+        m->p_J * alpha_f
+        - Te_meas
+        + Tf_hat;
+
+    if (!isfinite(omega_f_new) ||
+        !isfinite(alpha_f) ||
+        !isfinite(Text_motor_raw)) {
+
+        m->leso_th = 0.0f;
+        m->leso_z = 0.0f;
+
+        m->Tf_hat = 0.0f;
+        m->Text_ext_hat = 0.0f;
+        m->Text_ext_hat_f = 0.0f;
+        m->tp_observed = 0.0f;
+        return;
+    }
+
+    /*
+     * Automatic constant-bias estimation without adding a new state.
+     *
+     * Existing field reuse:
+     *
+     *     leso_z4 = estimated zero-torque bias [Nm]
+     *
+     * Existing parameter reuse:
+     *
+     *     p_gz_hz = bias-estimator LPF cutoff [Hz]
+     *
+     * Update the bias only while the controller is waiting in
+     * CTRL_SM_INDEX_FOUND and the mechanism is nearly stationary.
+     * Once CTRL_SM_ENABLE is entered, the bias is frozen so sustained
+     * rider torque cannot be learned away.
+     */
+    float f_bias_hz = m->p_gz_hz;
+
+    if (!isfinite(f_bias_hz) || !(f_bias_hz > 0.0f)) {
+        f_bias_hz = 1.0f;
+    }
+
+    const bool bias_calibration_active =
+        (m->ctrl_sm_state == CTRL_SM_INDEX_FOUND) &&
+        (fabsf(omega_f_new) < 0.5f) &&
+        (fabsf(Te_meas) < 0.5f);
+
+    if (bias_calibration_active) {
+        const float a_bias =
+            expf(
+                -2.0f *
+                (float)M_PI *
+                f_bias_hz *
+                dt
+            );
+
+        m->leso_z4 =
+            a_bias * m->leso_z4 +
+            (1.0f - a_bias) * Text_motor_raw;
+    }
+
+    if (!isfinite(m->leso_z4)) {
+        m->leso_z4 = 0.0f;
+    }
+
+    const float Text_motor_corrected =
+        Text_motor_raw - m->leso_z4;
+
+    m->leso_om = omega_f_new;
+    m->leso_z = Text_motor_corrected / m->p_J;
+
+    m->Tf_hat = Tf_hat;
+    m->Text_ext_hat = Text_motor_corrected;
+
+    /*
+     * Retain the existing torque-output LPF.
+     * c_fc_2pi = 2*pi*p_fc_TLPF.
+     */
+    if (isfinite(m->c_fc_2pi) && m->c_fc_2pi > 0.0f) {
+        const float a_torque =
+            expf(-m->c_fc_2pi * dt);
+
+        m->Text_ext_hat_f =
+            a_torque * m->Text_ext_hat_f +
+            (1.0f - a_torque) * Text_motor_corrected;
+    } else {
+        m->Text_ext_hat_f =
+            Text_motor_corrected;
+    }
+
+    /*
+     * Motor-shaft external torque used by the bicycle model and
+     * feedforward path. There is no estimator-state clamp.
+     */
+    m->tp_observed =
+        m->Text_ext_hat_f;
+}
+#endif
+
 
 float fal_gain(float e, float alpha, float delta, float g0) {
     float ae = fabsf(e);
